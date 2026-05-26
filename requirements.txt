@@ -1,0 +1,7 @@
+asyncio>=3.4.3
+websockets>=11.0
+boto3>=1.28.0
+zstandard>=0.22.0
+duckdb>=0.10.0
+pyarrow>=14.0
+dotenv
