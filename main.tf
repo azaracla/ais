@@ -38,6 +38,21 @@ resource "ovh_cloud_project_storage" "ais_public" {
   region_name  = var.s3_region_name
 }
 
+# Rendre tous les objets du bucket public en lecture
+resource "null_resource" "make_objects_public" {
+  depends_on = [ovh_cloud_project_storage.ais_public]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      export AWS_ACCESS_KEY_ID=${ovh_cloud_project_user_s3_credential.ais_troubleshoot_keys.access_key_id}
+      export AWS_SECRET_ACCESS_KEY=${ovh_cloud_project_user_s3_credential.ais_troubleshoot_keys.secret_access_key}
+      aws --endpoint-url=https://s3.${var.s3_region_name}.io.cloud.ovh.net s3 sync \
+        s3://${ovh_cloud_project_storage.ais_public.name}/ s3://${ovh_cloud_project_storage.ais_public.name}/ \
+        --acl public-read
+    EOT
+  }
+}
+
 # 5. Politique d'accès S3 pour les buckets ais-raw et ais-public
 resource "ovh_cloud_project_user_s3_policy" "system_s3_policy" {
   service_name = var.ovh_service_name
