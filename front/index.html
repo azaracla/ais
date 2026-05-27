@@ -5,8 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AIS Ship Visualizer - DuckDB + WebGL</title>
   <link rel="stylesheet" href="/src/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
+  <header>
+    <div class="logo-icon">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3h-6.75a4.49 4.49 0 0 0-4.39 3.58 4.5 4.5 0 0 0-4.39-3.58H2"></path><path d="M22 3v13a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V3"></path><path d="M12 17v3"></path><path d="M8 21h8"></path></svg>
+    </div>
+    <h1>AIS PUBLIC LAKEVIEW</h1>
+  </header>
+
   <div id="loading">
     <div class="spinner"></div>
     <p>Chargement de DuckDB WASM...</p>

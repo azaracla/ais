@@ -18,140 +18,50 @@ let dataForInfobox = [];
 /**
  * Create timeline UI component
  * @param {HTMLElement} parent - Parent element
- * @param {Object} initialRange - Initial time range
- * @param {function} onChange - Callback when time range changes
- * @returns {Object} - { updateRange: function }
+ * @param {string} initialDateTime - Initial date time string
+ * @param {function} onChange - Callback when date time changes
+ * @returns {Object} - { updateDateTime: function }
  */
-export function createTimeline(parent, initialRange, onChange) {
+export function createTimeline(parent, initialDateTime, onChange) {
   onTimeChangeCallback = onChange;
-  currentTimeRange = { ...initialRange };
+  const currentDateTime = initialDateTime;
 
   const container = document.createElement('div');
   container.className = 'timeline-container';
   
-  // Preset buttons
-  const presetButtons = createPresetButtons();
+  const label = document.createElement('span');
+  label.textContent = 'Date et Heure :';
+  label.style.fontSize = '12px';
+  label.style.color = '#666';
+  label.style.fontWeight = '600';
+
+  // Single Date input
+  const dateInput = document.createElement('input');
+  dateInput.type = 'datetime-local';
+  dateInput.id = 'timeline-datetime';
+  dateInput.value = initialDateTime;
+  dateInput.style.borderRadius = '20px';
+  dateInput.style.padding = '8px 16px';
+  dateInput.style.border = '1px solid #dcdfe6';
+  dateInput.style.background = '#f8f9fa';
+  dateInput.style.fontSize = '13px';
   
-  // Date inputs
-  const dateInputs = createDateInputs();
+  dateInput.addEventListener('change', () => {
+    if (onTimeChangeCallback) onTimeChangeCallback(dateInput.value);
+  });
   
-  // Range slider
-  const rangeSlider = createRangeSlider();
-  
-  container.appendChild(presetButtons);
-  container.appendChild(dateInputs);
-  // container.appendChild(rangeSlider);
-  
+  container.appendChild(label);
+  container.appendChild(dateInput);
   parent.appendChild(container);
 
-  // Initialize with current range
-  updateInputs();
-
   return {
-    updateRange: (range) => {
-      currentTimeRange = { ...range };
-      updateInputs();
-      if (onTimeChangeCallback) onTimeChangeCallback(currentTimeRange);
+    updateDateTime: (dateTime) => {
+      dateInput.value = dateTime;
+      if (onTimeChangeCallback) onTimeChangeCallback(dateTime);
     },
-    getRange: () => ({ ...currentTimeRange }),
+    getDateTime: () => dateInput.value,
     container
   };
-}
-
-function createPresetButtons() {
-  const group = document.createElement('div');
-  group.className = 'timeline-controls';
-  
-  const presets = [
-    { label: '1h', hours: 1, active: false },
-    { label: '6h', hours: 6, active: false },
-    { label: '12h', hours: 12, active: false },
-    { label: '24h', hours: 24, active: true },
-    { label: '3j', hours: 72, active: false },
-    { label: '7j', hours: 168, active: false }
-  ];
-  
-  presets.forEach(preset => {
-    const btn = document.createElement('button');
-    btn.className = 'timeline-button';
-    if (preset.active) btn.classList.add('active');
-    btn.textContent = preset.label;
-    btn.dataset.hours = preset.hours;
-    
-    btn.addEventListener('click', () => {
-      // Update active state
-      group.querySelectorAll('.timeline-button').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      
-      // Calculate time range
-      const end = new Date();
-      const start = new Date(end.getTime() - preset.hours * 60 * 60 * 1000);
-      
-      currentTimeRange = {
-        start: start.toISOString().slice(0, 19),
-        end: end.toISOString().slice(0, 19)
-      };
-      
-      updateInputs();
-      if (onTimeChangeCallback) onTimeChangeCallback({ ...currentTimeRange });
-    });
-    
-    group.appendChild(btn);
-  });
-  
-  return group;
-}
-
-function createDateInputs() {
-  const group = document.createElement('div');
-  group.className = 'timeline-range';
-  
-  // Start date
-  const startInput = document.createElement('input');
-  startInput.type = 'datetime-local';
-  startInput.id = 'timeline-start';
-  startInput.addEventListener('change', () => {
-    currentTimeRange.start = startInput.value;
-    if (onTimeChangeCallback) onTimeChangeCallback({ ...currentTimeRange });
-  });
-  
-  // End date
-  const endInput = document.createElement('input');
-  endInput.type = 'datetime-local';
-  endInput.id = 'timeline-end';
-  endInput.addEventListener('change', () => {
-    currentTimeRange.end = endInput.value;
-    if (onTimeChangeCallback) onTimeChangeCallback({ ...currentTimeRange });
-  });
-  
-  group.appendChild(startInput);
-  group.appendChild(endInput);
-  
-  return group;
-}
-
-function createRangeSlider() {
-  const group = document.createElement('div');
-  group.className = 'timeline-slider';
-  
-  const slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = '0';
-  slider.max = '100';
-  slider.value = '100';
-  slider.style.width = '200px';
-  
-  group.appendChild(slider);
-  
-  return group;
-}
-
-function updateInputs() {
-  const startInput = document.getElementById('timeline-start');
-  const endInput = document.getElementById('timeline-end');
-  
-  if (startInput) startInput.value = currentTimeRange.start;
-  if (endInput) endInput.value = currentTimeRange.end;
 }
 
 /**
@@ -244,11 +154,15 @@ function displayResults(container, ships, onSelect) {
     const name = ship.name || `Navire #${ship.mmsi}`;
     const imo = ship.imo_number ? `IMO: ${ship.imo_number}` : '';
     const pos = ship.lat && ship.lon ? `(${ship.lat.toFixed(4)}, ${ship.lon.toFixed(4)})` : '';
-    const type = getShipTypeName(ship.message_type);
+    const type = getShipTypeName(ship.ship_type);
+    const color = getShipColor(ship.ship_type);
     
     return `
       <div class="search-result" data-mmsi="${ship.mmsi}" data-imo="${ship.imo_number}">
-        <div class="name">${escapeHtml(name)}</div>
+        <div class="name">
+          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; margin-right:8px;"></span>
+          ${escapeHtml(name)}
+        </div>
         <div class="details">${imo} ${pos}</div>
         <div class="meta">${type} | MMSI: ${ship.mmsi}</div>
       </div>
@@ -269,17 +183,38 @@ function displayResults(container, ships, onSelect) {
   });
 }
 
+function getShipColor(shipType) {
+  if (!shipType) return '#9e9e9e'; // Unknown (Grey)
+  if (shipType >= 70 && shipType <= 79) return '#4caf50'; // Cargo (Green)
+  if (shipType >= 80 && shipType <= 89) return '#f44336'; // Tanker (Red)
+  if (shipType >= 60 && shipType <= 69) return '#2196f3'; // Passenger (Blue)
+  if (shipType >= 40 && shipType <= 49) return '#ffeb3b'; // High Speed (Yellow)
+  if (shipType === 30) return '#ff9800'; // Fishing (Orange)
+  if (shipType === 36 || shipType === 37) return '#e91e63'; // Pleasure/Sailing (Pink)
+  if (shipType === 31 || shipType === 32 || shipType === 52) return '#00bcd4'; // Tug/Pilot (Cyan)
+  if (shipType === 35) return '#607d8b'; // Military (Blue Grey)
+  return '#9e9e9e';
+}
+
 function getShipTypeName(type) {
   const types = {
-    1: 'Classe A',
-    5: 'Classe A (Type 5)',
-    18: 'Classe B',
-    19: 'Équipement Classe B',
-    24: 'Aide à la navigation',
-    4: 'Station de base',
-    27: 'Position au sol'
+    30: 'Pêche',
+    31: 'Remorqueur',
+    32: 'Remorqueur',
+    35: 'Militaire',
+    36: 'Plaisance',
+    37: 'Voilier',
+    40: 'Grande vitesse',
+    52: 'Pilotage',
+    60: 'Passagers',
+    70: 'Cargo',
+    80: 'Pétrolier',
   };
-  return types[type] || `Type ${type}`;
+  if (type >= 70 && type <= 79) return 'Cargo';
+  if (type >= 80 && type <= 89) return 'Pétrolier';
+  if (type >= 60 && type <= 69) return 'Passagers';
+  if (type >= 40 && type <= 49) return 'Grande vitesse';
+  return types[type] || `Autre (${type || 'inconnu'})`;
 }
 
 /**

@@ -7,9 +7,9 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background: #0a0a1a;
-  color: #e0e0e0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f2f5;
+  color: #1a1a1a;
   user-select: none;
 }
 
@@ -24,7 +24,7 @@ body {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background: #0a0a1a;
+  background: #ffffff;
   z-index: 10000;
   gap: 20px;
 }
@@ -34,29 +34,61 @@ body {
 }
 
 .spinner {
-  width: 60px;
-  height: 60px;
-  border: 4px solid #333;
-  border-top-color: #4a90e2;
+  width: 50px;
+  height: 50px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #1a73e8;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
-/* Main App */
+/* Header */
+header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 60px;
+  background: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  z-index: 1001;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1a73e8;
+  letter-spacing: -0.5px;
+}
+
+/* Main Layout */
 #app {
   position: absolute;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
+  z-index: 0;
 }
 
-#app canvas {
-  display: block;
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+header .logo-icon {
+  margin-right: 10px;
+  color: #1a73e8;
 }
 
 /* Info Panel */
@@ -64,129 +96,44 @@ body {
   position: absolute;
   bottom: 20px;
   left: 20px;
-  background: rgba(0, 0, 0, 0.85);
-  padding: 12px 24px;
-  border-radius: 12px;
-  border: 1px solid #2a2a3a;
+  background: #ffffff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
   font-size: 13px;
   display: flex;
-  gap: 30px;
-  backdrop-filter: blur(10px);
-  z-index: 100;
-}
-
-#info span {
-  display: inline-block;
-}
-
-#count {
-  color: #4a90e2;
-  font-weight: 600;
-}
-
-#fps {
-  color: #50e3c2;
-}
-
-#time {
-  color: #bd93f9;
+  gap: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  z-index: 1000;
+  color: #444;
 }
 
 /* Search */
 .search-container {
   position: absolute;
-  top: 20px;
+  top: 80px;
   right: 20px;
-  background: rgba(0, 0, 0, 0.85);
-  border-radius: 12px;
-  border: 1px solid #2a2a3a;
-  padding: 16px;
-  width: 320px;
-  backdrop-filter: blur(10px);
-  z-index: 100;
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e0e0e0;
+  padding: 12px;
+  width: 300px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  z-index: 1000;
 }
 
 .search-container h3 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #a0a0b0;
-}
-
-.search-input-wrapper {
-  position: relative;
-  margin-bottom: 12px;
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .search-input-wrapper input {
-  width: 100%;
-  padding: 10px 40px 10px 12px;
-  border: 1px solid #3a3a4a;
-  border-radius: 8px;
-  background: #1a1a24;
-  color: #e0e0e0;
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.search-input-wrapper input:focus {
-  border-color: #4a90e2;
-}
-
-.search-input-wrapper input::placeholder {
-  color: #6a6a7a;
-}
-
-.search-input-wrapper::after {
-  content: '';
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 20px;
-  height: 20px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236a6a7a'%3E%3Cpath d='M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z'/%3E%3C/svg%3E") no-repeat center;
-}
-
-.search-results {
-  max-height: 300px;
-  overflow-y: auto;
-  display: none;
-}
-
-.search-results.visible {
-  display: block;
-}
-
-.search-result {
-  padding: 10px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.search-result:hover {
-  background: rgba(74, 144, 226, 0.1);
-}
-
-.search-result .name {
-  font-weight: 600;
-  color: #e0e0e0;
-  font-size: 14px;
-}
-
-.search-result .details {
-  font-size: 12px;
-  color: #8a8a9a;
-}
-
-.search-result .meta {
-  font-size: 11px;
-  color: #6a6a7a;
+  background: #f8f9fa;
+  border: 1px solid #dcdfe6;
+  color: #333;
 }
 
 /* Timeline */
@@ -195,15 +142,55 @@ body {
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.85);
+  background: #ffffff;
+  border-radius: 30px;
+  border: 1px solid #e0e0e0;
+  padding: 8px 24px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  z-index: 1000;
+}
+
+.timeline-button {
+  background: #f8f9fa;
+  border: 1px solid #dcdfe6;
+  color: #606266;
+  border-radius: 20px;
+}
+
+.timeline-button.active {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  color: #ffffff;
+}
+
+.timeline-range input {
+  background: #f8f9fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 20px;
+}
+
+/* Marker Styles */
+.ship-marker-icon {
+  cursor: pointer;
+}
+
+.ship-marker-icon svg {
+  transition: filter 0.2s;
+}
+
+.ship-marker-icon:hover svg {
+  filter: drop-shadow(0 0 5px rgba(26, 115, 232, 0.8)) brightness(1.2);
+}
+
+/* Leaflet Popup */
+.leaflet-popup-content-wrapper {
   border-radius: 12px;
-  border: 1px solid #2a2a3a;
-  padding: 16px 24px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  backdrop-filter: blur(10px);
-  z-index: 100;
+  padding: 5px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.leaflet-popup-tip {
+  background: white;
 }
 
 .timeline-controls {
@@ -394,7 +381,7 @@ body {
   border: 1px solid #3a3a4a;
   color: #8a8a9a;
   font-size: 14px;
-  z-index: 100;
+  z-index: 1000;
   display: none;
 }
 

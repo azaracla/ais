@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@duckdb/duckdb-wasm": "^1.33.1-dev55.0",
+    "@duckdb/duckdb-wasm": "^1.33.1-dev54.0",
     "three": "^0.160.0"
   },
   "devDependencies": {
