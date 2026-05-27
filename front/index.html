@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIS Ship Visualizer - DuckDB + WebGL</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Chargement de DuckDB WASM...</p>
+  </div>
+  
+  <div id="app"></div>
+  
+  <div id="info">
+    <span id="count">0 navires</span>
+    <span id="fps">60 fps</span>
+    <span id="time">--</span>
+  </div>
+  
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

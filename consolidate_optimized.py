@@ -5,9 +5,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import os
 import time
+import shutil
 from datetime import datetime, timezone
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from configuration import *
+import argparse
+from datetime import datetime, timezone, timedelta
 
 # ── Schéma Parquet cible ──────────────────────────────────────────────────────
 SCHEMA = pa.schema([
@@ -57,10 +60,9 @@ POSITION_TYPES = frozenset({
 BUCKET_SILVER = BUCKET_RAW
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers de Parsing (Inchangés) ───────────────────────────────────────────
 def parse_ts(raw: str | None) -> datetime | None:
-    if not raw:
-        return None
+    if not raw: return None
     try:
         cleaned = raw.replace(' +0000 UTC', '+00:00')
         parts = cleaned.split(' ')
@@ -70,28 +72,21 @@ def parse_ts(raw: str | None) -> datetime | None:
                 parts[1] = '00:' + ':'.join(parts[1].split(':')[1:])
                 cleaned = ' '.join(parts)
         return datetime.fromisoformat(cleaned)
-    except Exception:
-        return None
-
+    except Exception: return None
 
 def parse_eta(eta: dict | None) -> datetime | None:
-    if not eta:
-        return None
+    if not eta: return None
     try:
         month = int(eta.get('Month', 0))
         day   = int(eta.get('Day',   0))
-        if month < 1 or month > 12 or day < 1:
-            return None
+        if month < 1 or month > 12 or day < 1: return None
         max_days = {1:31,2:29,3:31,4:30,5:31,6:30,7:31,8:31,9:30,10:31,11:30,12:31}
-        if day > max_days.get(month, 31):
-            return None
+        if day > max_days.get(month, 31): return None
         year   = int(eta.get('Year')   or 2024)
         hour   = min(int(eta.get('Hour')   or 0), 23)
         minute = min(int(eta.get('Minute') or 0), 59)
         return datetime(year, month, day, hour, minute, 0)
-    except (ValueError, TypeError):
-        return None
-
+    except (ValueError, TypeError): return None
 
 def extract_record(data: dict) -> dict:
     mtype    = data.get('message_type', '')
@@ -104,8 +99,7 @@ def extract_record(data: dict) -> dict:
         return v.get(key) if v else None
 
     def safe_add(a, b) -> float | None:
-        if a is None and b is None:
-            return None
+        if a is None and b is None: return None
         return (a or 0.0) + (b or 0.0)
 
     if   mtype == 'ShipStaticData':          dim_src = sub
@@ -160,17 +154,13 @@ def extract_record(data: dict) -> dict:
     }
 
 
-# ── Worker (tourne dans un process séparé, pas de GIL partagé) ───────────────
-def _worker(args: tuple) -> tuple[int, int]:
+# ── Worker Optimisé ──────────────────────────────────────────────────────────
+def _worker(args: tuple) -> tuple[int, int, str]:
     """
-    Download → parse → write Parquet local partitionné par message_type.
-    Retourne (lignes_écrites, erreurs_parsing).
-
-    Chaque worker est un process indépendant :
-    - pas de GIL partagé → parsing CPU vraiment parallèle
-    - pas de concat_tables central → mémoire bornée par fichier
+    Chaque worker écrit UN SEUL fichier Parquet plat temporaire contenant 
+    TOUS les types de messages mixés.
     """
-    s3_cfg, s3_key, tmpdir, idx, worker_id = args
+    s3_cfg, s3_keys, tmp_worker_dir, worker_id = args
 
     s3 = boto3.client(
         's3',
@@ -180,60 +170,66 @@ def _worker(args: tuple) -> tuple[int, int]:
         region_name=s3_cfg['region'],
     )
 
-    # ── Download + décompression ──────────────────────────────────────────────
-    try:
-        obj      = s3.get_object(Bucket=s3_cfg['bucket'], Key=s3_key)
-        raw_zst  = obj['Body'].read()
-        raw_json = zstd.ZstdDecompressor().decompress(raw_zst)
-    except Exception as e:
-        return (0, 1)
-
-    # ── Parsing — groupé par message_type pour écriture directe ──────────────
-    by_type: dict[str, list] = {}
+    BATCH_SIZE = 5000
+    buffer = []
+    total_rows = 0
     parse_errors = 0
-    for line in raw_json.split(b'\n'):
-        if not line.strip():
-            continue
-        try:
-            data = orjson.loads(line)
-            if not data.get('metadata', {}).get('MMSI'):
+
+    # Création d'un unique fichier Parquet par worker dans un dossier temporaire
+    out_path = os.path.join(tmp_worker_dir, f"raw_worker_{worker_id:02d}.parquet")
+    writer = pq.ParquetWriter(out_path, schema=SCHEMA, compression='zstd')
+
+    def flush_buffer():
+        if buffer:
+            writer.write_batch(pa.RecordBatch.from_pylist(buffer, schema=SCHEMA))
+            buffer.clear()
+
+    try:
+        for s3_key in s3_keys:
+            try:
+                obj      = s3.get_object(Bucket=s3_cfg['bucket'], Key=s3_key)
+                raw_zst  = obj['Body'].read()
+                raw_json = zstd.ZstdDecompressor().decompress(raw_zst)
+            except Exception:
+                parse_errors += 1
                 continue
-            rec   = extract_record(data)
-            mtype = rec['message_type'] or 'unknown'
-            if mtype not in by_type:
-                by_type[mtype] = []
-            by_type[mtype].append(rec)
-        except Exception:
-            parse_errors += 1
 
-    if not by_type:
-        return (0, parse_errors)
+            for line in raw_json.split(b'\n'):
+                if not line.strip(): continue
+                try:
+                    data = orjson.loads(line)
+                    if not data.get('metadata', {}).get('MMSI'): continue
+                    rec = extract_record(data)
+                    
+                    if not rec['message_type']:
+                        rec['message_type'] = 'UnknownMessage'
 
-    # ── Écriture Parquet locale — un fichier par message_type ────────────────
-    total = 0
-    for mtype, records in by_type.items():
-        out_dir = os.path.join(tmpdir, f"message_type={mtype}")
-        os.makedirs(out_dir, exist_ok=True)
-        table = pa.Table.from_pylist(records, schema=SCHEMA)
-        pq.write_table(
-            table,
-            os.path.join(out_dir, f"worker_{worker_id:02d}.parquet"),
-            compression='zstd',
-        )
-        total += len(records)
+                    buffer.append(rec)
+                    total_rows += 1
 
-    return (total, parse_errors)
+                    if len(buffer) >= BATCH_SIZE:
+                        flush_buffer()
+                except Exception:
+                    parse_errors += 1
 
+        flush_buffer()
 
+    finally:
+        writer.close()
+
+    return (total_rows, parse_errors, out_path)
 
 
-
-# ── Orchestration ─────────────────────────────────────────────────────────────
-def run_converter():
+# ── Orchestration Finale (Extraction + Tri global + Fusion) ───────────────────
+def run_converter(target_date: datetime):
     start = time.time()
-    today = datetime.now(timezone.utc)
-    prefix       = f"raw/year={today.year}/month={today.month:02d}/day={today.day:02d}/"
-    s3_out_prefix = f"silver/year={today.year}/month={today.month:02d}/day={today.day:02d}"
+    
+    prefix = f"raw/year={target_date.year}/month={target_date.month:02d}/day={target_date.day:02d}/"
+    output_dir = f"silver/year={target_date.year}/month={target_date.month:02d}/day={target_date.day:02d}"
+    tmp_worker_dir = f"tmp_workers_day_{target_date.day:02d}"
+
+    print(f"📅 Traitement de la date : {target_date.strftime('%Y-%m-%d')}")
+    print(f"🔍 Recherche du préfixe S3 : {prefix}")
 
     s3_cfg = {
         'endpoint_url': OVH_ENDPOINT,
@@ -258,43 +254,99 @@ def run_converter():
         for page in paginator.paginate(Bucket=BUCKET_RAW, Prefix=prefix)
         for obj in page.get('Contents', [])
     ]
-    print(f"🔄 {len(keys)} fichiers à convertir")
-    if not keys:
+    print(f"🔄 {len(keys)} fichiers raw à convertir")
+    if not keys: 
+        print("⚠️ Aucun fichier trouvé pour cette date. Fin du script.")
         return
 
-    # ── 2. Download + parse + write Parquet local (ProcessPoolExecutor) ───────
-    # Un process par CPU : pas de GIL, pas de concat_tables central.
-    # Chaque process écrit ses propres fichiers Parquet dans silver/...
     n_workers = os.cpu_count() or 4
-    print(f"⚙️  {n_workers} processus (CPU count)")
+    print(f"⚙️  Orchestration sur {n_workers} processus")
 
-    # Créer le dossier silver local
-    output_dir = s3_out_prefix
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(tmp_worker_dir, exist_ok=True)
 
-    worker_args = [(s3_cfg, key, output_dir, i, i % n_workers) for i, key in enumerate(keys)]
+    # Dispatch round-robin
+    batches     = [keys[i::n_workers] for i in range(n_workers)]
+    worker_args = [(s3_cfg, batch, tmp_worker_dir, worker_id)
+                   for worker_id, batch in enumerate(batches) if batch]
 
+    # ── 2. Phase 1 : Lecture parallèle ────────────────────────────────────────
     total_rows, total_errors = 0, 0
+    worker_files = []
+    
     with ProcessPoolExecutor(max_workers=n_workers) as pool:
-        # chunksize : chaque process reçoit 10 fichiers à la fois
-        # → réduit l'overhead de scheduling inter-process
-        for i, (rows, errs) in enumerate(
-            pool.map(_worker, worker_args, chunksize=20)
-        ):
+        for worker_id, (rows, errs, path) in enumerate(pool.map(_worker, worker_args)):
             total_rows   += rows
             total_errors += errs
-            if (i + 1) % 100 == 0:
-                elapsed = time.time() - start
-                rate = (i + 1) / elapsed
-                eta  = (len(keys) - i - 1) / rate
-                print(f"  {i+1}/{len(keys)} — {rate:.0f} fichiers/s — ETA {eta:.0f}s")
+            worker_files.append(path)
+            print(f"  worker {worker_id:02d} — {rows:,} lignes traitées")
 
-    print(f"⏱️  Extraction + écriture locale : {time.time()-start:.1f}s "
-          f"— {total_rows:,} lignes ({total_errors} erreurs parsing)")
+    print(f"⏱️  Phase 1 (Parsing) terminée en {time.time()-start:.1f}s")
 
-    print(f"✅ Conversion terminée en {time.time()-start:.1f}s")
-    print(f"   → Fichiers Parquet sauvegardés dans {output_dir}/message_type=<type>/")
+# ── 3. Phase 2 : Consolidation Globale, Dédoublonnage et Tri SANS RAM (Via DuckDB Disque) ───
+    print("💎 Phase 2 : Dédoublonnage et Indexation Parquet optimisés (Zéro RAM)...")
+    
+    final_file_path = os.path.join(output_dir, "messages_consolidated.parquet")
+    print(f"  └─ Préparation de l'écriture : {final_file_path}")
+    
+    import duckdb as ddb
+    
+    # On ouvre une connexion DuckDB persistante au lieu d'une connexion en mémoire (:memory:)
+    # Cela permet à DuckDB d'utiliser le disque pour décharger la RAM si nécessaire
+    ctx = ddb.connect("tmp_consolidation.db")
+    
+    # On pointe directement vers les fichiers Parquet temporaires générés par les workers
+    # DuckDB va les lire comme une table sans jamais les charger entièrement en mémoire
+    workers_pattern = os.path.join(tmp_worker_dir, "*.parquet")
+    
+    # La magie SQL : On dédoublonne avec le QUALIFY, on trie avec le ORDER BY, 
+    # et on exporte DIRECTEMENT en Parquet en un seul flux continu (Streaming)
+    query = f"""
+        COPY (
+            SELECT * FROM '{workers_pattern}'
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY mmsi, ts, message_type 
+                ORDER BY received_at ASC
+            ) = 1
+            ORDER BY message_type ASC, mmsi ASC, ts ASC
+        ) TO '{final_file_path}' (FORMAT 'PARQUET', COMPRESSION 'ZSTD', ROW_GROUP_SIZE 100000);
+    """
+    
+    # Exécution du pipeline de streaming
+    ctx.execute(query)
+    
+    # Récupération rapide du compte final pour tes logs sans charger les données
+    rows_after_dedup = ctx.execute(f"SELECT COUNT(*) FROM '{final_file_path}'").fetchone()[0]
+    
+    print(f"  └─ Lignes avant (brutes) : {total_rows:,} | Lignes après (uniques) : {rows_after_dedup:,} ({total_rows - rows_after_dedup:,} doublons supprimés)")
 
+    # Nettoyage de la base temporaire DuckDB et des dossiers workers
+    ctx.close()
+    if os.path.exists("tmp_consolidation.db"):
+        os.remove("tmp_consolidation.db")
+    shutil.rmtree(tmp_worker_dir)
 
+    print(f"✅ Opération terminée avec succès en {time.time()-start:.1f}s !")
+    
 if __name__ == "__main__":
-    run_converter()
+    parser = argparse.ArgumentParser(description="Convertisseur AIS Raw to Silver Parquet")
+    parser.add_argument(
+        "--date", 
+        help="Date à traiter au format YYYY-MM-DD. Si absent, traite la date d'HIER.",
+        type=str,
+        default=None
+    )
+    args = parser.parse_args()
+
+    if args.date:
+        # Si une date est fournie, on la parse
+        try:
+            target_date = datetime.strptime(args.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            print("❌ Format de date invalide. Utilisez YYYY-MM-DD (ex: 2026-05-26)")
+            exit(1)
+    else:
+        # Par défaut : Aujourd'hui - 1 jour (Hier)
+        target_date = datetime.now(timezone.utc) - timedelta(days=1)
+
+    run_converter(target_date)

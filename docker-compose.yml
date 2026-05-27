@@ -1,7 +1,7 @@
 services:
- listener-world:
+ listener-ne:
    build: .
-   container_name: ais-listener-world
+   container_name: ais-listener-ne
    restart: unless-stopped
    environment:
      - PYTHONUNBUFFERED=1
@@ -9,7 +9,7 @@ services:
      - OVH_ACCESS_KEY=${OVH_ACCESS_KEY}
      - OVH_SECRET_KEY=${OVH_SECRET_KEY}
      - AISSTREAM_TOKEN=${AISSTREAM_TOKEN}
-   command: ["--id", "listener_world", "--shard", "WORLD"]
+   command: ["--id", "listener_ne", "--shard", "NE"]
    logging:
      driver: "json-file"
      options:
