@@ -87,7 +87,7 @@ npm run preview
 
 ## Données
 
-Source : `https://ais-public-prod.s3.gra.io.cloud.ovh.net/metadata.ducklake`
+Source : `https://ais-public-prod.s3.gra.io.cloud.ovh.net/ais.ducklake`
 
 Champs utilisés :
 - `mmsi` - Maritime Mobile Service Identity

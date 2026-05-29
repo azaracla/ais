@@ -259,7 +259,7 @@ def run_converter(target_date: datetime):
         print("⚠️ Aucun fichier trouvé pour cette date. Fin du script.")
         return
 
-    n_workers = os.cpu_count() or 4
+    n_workers = min(os.cpu_count() or 4, 8)
     print(f"⚙️  Orchestration sur {n_workers} processus")
 
     os.makedirs(output_dir, exist_ok=True)
@@ -284,19 +284,28 @@ def run_converter(target_date: datetime):
     print(f"⏱️  Phase 1 (Parsing) terminée en {time.time()-start:.1f}s")
 
 # ── 3. Phase 2 : Consolidation Globale, Dédoublonnage et Tri SANS RAM (Via DuckDB Disque) ───
-    print("💎 Phase 2 : Dédoublonnage et Indexation Parquet optimisés (Zéro RAM)...")
+    print("💎 Phase 2 : Dédoublonnage et Indexation Parquet optimisés (Spill-to-Disk)...")
     
     final_file_path = os.path.join(output_dir, "messages_consolidated.parquet")
     print(f"  └─ Préparation de l'écriture : {final_file_path}")
     
     import duckdb as ddb
     
-    # On ouvre une connexion DuckDB persistante au lieu d'une connexion en mémoire (:memory:)
-    # Cela permet à DuckDB d'utiliser le disque pour décharger la RAM si nécessaire
+    # On ouvre une connexion DuckDB persistante
     ctx = ddb.connect("tmp_consolidation.db")
     
+    # --- OPTIMISATIONS MÉMOIRE ---
+    # On bride la RAM DuckDB pour laisser de la place au système et éviter le OOM Killer
+    ctx.execute("SET memory_limit='10GB';")
+    # On définit explicitement un dossier temporaire pour le spill-to-disk
+    duckdb_tmp = os.path.join(tmp_worker_dir, "duckdb_temp")
+    os.makedirs(duckdb_tmp, exist_ok=True)
+    ctx.execute(f"SET temp_directory='{duckdb_tmp}';")
+    # Désactiver l'ordre d'insertion peut accélérer les tris/dédoublonnages
+    ctx.execute("SET preserve_insertion_order=false;")
+    # -----------------------------
+    
     # On pointe directement vers les fichiers Parquet temporaires générés par les workers
-    # DuckDB va les lire comme une table sans jamais les charger entièrement en mémoire
     workers_pattern = os.path.join(tmp_worker_dir, "*.parquet")
     
     # La magie SQL : On dédoublonne avec le QUALIFY, on trie avec le ORDER BY, 

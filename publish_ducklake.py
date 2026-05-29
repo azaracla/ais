@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from configuration import *
 
 
-def publish_ducklake(target_date: datetime):
+def publish_ducklake(target_date: datetime, force: bool = False):
     print(f"📅 Publication DuckLake pour la date : {target_date.strftime('%Y-%m-%d')}")
 
     # ── 1. Configuration des chemins S3 en fonction de la date cible ─────────
@@ -33,41 +33,52 @@ def publish_ducklake(target_date: datetime):
     )
 
     upload_args = []
-    for root, _, files in os.walk(local_silver):
-        for f in files:
-            if not f.endswith(".parquet"):
-                continue
-            local_path = os.path.join(root, f)
-            rel_path   = os.path.relpath(local_path, local_silver)
-            s3_key     = f"{s3_silver_prefix}/{rel_path}"
-            upload_args.append((local_path, s3_key))
+    if os.path.exists(local_silver):
+        for root, _, files in os.walk(local_silver):
+            for f in files:
+                if not f.endswith(".parquet"):
+                    continue
+                local_path = os.path.join(root, f)
+                rel_path   = os.path.relpath(local_path, local_silver)
+                s3_key     = f"{s3_silver_prefix}/{rel_path}"
+                upload_args.append((local_path, s3_key))
 
     if not upload_args:
         print(f"⚠️  Aucun fichier Parquet trouvé localement dans {local_silver}")
-        return
+        if not force:
+            return
 
-    def _upload_file(args):
-        local_path, s3_key = args
-        s3.upload_file(local_path, BUCKET_PUBLIC, s3_key, ExtraArgs={"ACL": "public-read"})
-
-    print(f"📤 Upload de {len(upload_args)} fichier(s) vers S3...")
-    with ThreadPoolExecutor(max_workers=32) as pool:
-        list(pool.map(_upload_file, upload_args))
-    print(f"✅ Fichier(s) uploadé(s) vers s3://{BUCKET_PUBLIC}/{s3_silver_prefix}/")
-
-    # ── 2. Télécharger metadata.ducklake existant ─────────────────────
+    # ── 2. Télécharger ais.ducklake existant ─────────────────────
     local_metadata_dir = "ducklake_metadata"
-    local_metadata     = os.path.join(local_metadata_dir, "metadata.ducklake")
+    local_metadata     = os.path.join(local_metadata_dir, "ais.ducklake")
     local_data_path    = os.path.abspath(os.path.join(local_metadata_dir, "data"))
     os.makedirs(local_data_path, exist_ok=True)
 
+    if os.path.exists(local_metadata):
+        os.remove(local_metadata)
+
+    base_https = f"https://{BUCKET_PUBLIC}.s3.gra.io.cloud.ovh.net"
     is_new = False
+    
+    print(f"📥 Tentative de récupération de ais.ducklake...")
     try:
-        s3.download_file(BUCKET_PUBLIC, "metadata.ducklake", local_metadata)
-        print("📥 metadata.ducklake existant récupéré")
-    except Exception:
-        print("🆕 Nouveau DuckLake — création depuis zéro")
-        is_new = True
+        s3.download_file(BUCKET_PUBLIC, "ais.ducklake", local_metadata)
+        print("   ✅ Récupéré via Boto3")
+    except Exception as e:
+        print(f"   ⚠️ Échec Boto3 ({e}), tentative via HTTPS direct...")
+        try:
+            import requests
+            r = requests.get(f"{base_https}/ais.ducklake", timeout=10)
+            if r.status_code == 200:
+                with open(local_metadata, 'wb') as f:
+                    f.write(r.content)
+                print("   ✅ Récupéré via HTTPS direct")
+            else:
+                print(f"   🆕 Nouveau DuckLake (Fichier absent ou HTTP {r.status_code})")
+                is_new = True
+        except Exception as e2:
+            print(f"   🆕 Nouveau DuckLake (Erreur : {e2})")
+            is_new = True
 
     # ── 3. Configurer DuckDB + httpfs ─────────────────────────────────
     con = duckdb.connect()
@@ -104,15 +115,45 @@ def publish_ducklake(target_date: datetime):
 
     # ── 5. Créer la table si premier run ──────────────────────────────────────
     if is_new:
-        first_url = f"{base_https}/{upload_args[0][1]}"
+        if not upload_args:
+            print("❌ Impossible d'initialiser un nouveau DuckLake sans fichiers Parquet.")
+            return
+        # On utilise le chemin local temporairement pour l'initialisation structurelle
+        first_local_path = upload_args[0][0]
         con.execute(f"""
-            CREATE TABLE ais_lake.messages AS
-                SELECT * FROM read_parquet('{first_url}') WITH NO DATA
+            CREATE TABLE IF NOT EXISTS ais_lake.messages AS
+                SELECT * FROM read_parquet('{first_local_path}') WITH NO DATA
         """)
-        con.execute("ALTER TABLE ais_lake.messages SET PARTITIONED BY (year, month, day);")
-        print("🗂️  Table 'messages' partitionnée proprement initialisée dans DuckLake")
+        try:
+            con.execute("ALTER TABLE ais_lake.messages SET PARTITIONED BY (year, month, day);")
+        except Exception:
+            pass # Déjà partitionné ou erreur non critique ici
+        print("🗂️  Table 'messages' vérifiée/initialisée dans DuckLake")
         
-    # ── 6. Enregistrer le nouveau fichier consolidé (idempotent) ──────────────
+    # ── 6. Gérer le rechargement (Force) — NETTOYAGE AVANT UPLOAD ──────────────
+    if force and not is_new:
+        print(f"🗑️  Mode FORCE : Nettoyage des données existantes pour le {target_date.strftime('%Y-%m-%d')}...")
+        try:
+            # On supprime logiquement les données uniquement si le catalogue existait
+            con.execute(f"DELETE FROM ais_lake.messages WHERE year = {target_date.year} AND month = {target_date.month} AND day = {target_date.day}")
+            print(f"   └─ Données supprimées logiquement (Anciens fichiers invalidés)")
+        except Exception as e:
+            print(f"   ⚠️ Erreur lors du DELETE : {e}")
+    elif force and is_new:
+        print(f"✨ Mode FORCE sur nouveau catalogue : Saut du DELETE (rien à nettoyer)")
+
+    # ── 7. Uploader les nouveaux fichiers vers S3 ──────────────────────────────
+    if upload_args:
+        print(f"📤 Upload de {len(upload_args)} fichier(s) vers S3...")
+        def _upload_file(args):
+            local_path, s3_key = args
+            s3.upload_file(local_path, BUCKET_PUBLIC, s3_key, ExtraArgs={"ACL": "public-read"})
+
+        with ThreadPoolExecutor(max_workers=32) as pool:
+            list(pool.map(_upload_file, upload_args))
+        print(f"✅ Nouveau(x) fichier(s) uploadé(s) vers S3")
+
+    # ── 8. Enregistrer les fichiers dans le catalogue (idempotent ou force) ────
     known_paths = {
         row[0]
         for row in con.execute(
@@ -120,12 +161,16 @@ def publish_ducklake(target_date: datetime):
         ).fetchall()
     }
 
-    to_register = [
-        s3_key for _, s3_key in upload_args
-        if f"{base_https}/{s3_key}" not in known_paths
-    ]
+    if force:
+        # En mode force, on ré-enregistre tout pour rafraîchir les métadonnées
+        to_register = [s3_key for _, s3_key in upload_args]
+    else:
+        to_register = [
+            s3_key for _, s3_key in upload_args
+            if f"{base_https}/{s3_key}" not in known_paths
+        ]
 
-    print(f"📋 {len(to_register)} nouveau(x) fichier(s) à enregistrer dans le catalogue...")
+    print(f"📋 {len(to_register)} fichier(s) à enregistrer/rafraîchir dans le catalogue...")
 
     for s3_key in to_register:
         public_url = f"{base_https}/{s3_key}"
@@ -138,19 +183,19 @@ def publish_ducklake(target_date: datetime):
             )
         """)
 
-    # ── 7. Fermer la connexion — flush vers le .ducklake local ────────
+    # ── 9. Fermer la connexion — flush vers le .ducklake local ────────
     con.close()
     print("💾 Catalogue DuckLake mis à jour localement")
 
-    # ── 8. Uploader le .ducklake mis à jour vers S3 ───────────────────
+    # ── 10. Uploader le .ducklake mis à jour vers S3 ───────────────────
     s3.upload_file(
         local_metadata,
         BUCKET_PUBLIC,
-        "metadata.ducklake",
+        "ais.ducklake",
         ExtraArgs={"ACL": "public-read"},
     )
-    print("📤 metadata.ducklake publié avec succès !")
-    print(f"   → Accès public direct : ATTACH 'https://{BUCKET_PUBLIC}.s3.gra.io.cloud.ovh.net/metadata.ducklake' AS ais (TYPE ducklake);")
+    print("📤 ais.ducklake publié avec succès !")
+    print(f"   → Accès public direct : ATTACH 'https://{BUCKET_PUBLIC}.s3.gra.io.cloud.ovh.net/ais.ducklake' AS ais (TYPE ducklake);")
 
 
 if __name__ == "__main__":
@@ -160,6 +205,11 @@ if __name__ == "__main__":
         help="Date des fichiers Silver à publier au format YYYY-MM-DD. Si absent, traite la date d'HIER.",
         type=str,
         default=None
+    )
+    parser.add_argument(
+        "--force",
+        help="Force la re-publication et l'enregistrement même si les fichiers sont déjà connus (nettoie la date cible)",
+        action="store_true"
     )
     args = parser.parse_args()
 
@@ -173,4 +223,4 @@ if __name__ == "__main__":
         # Par défaut : Hier
         target_date = datetime.now(timezone.utc) - timedelta(days=1)
 
-    publish_ducklake(target_date)
+    publish_ducklake(target_date, force=args.force)

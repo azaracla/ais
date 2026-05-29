@@ -44,8 +44,8 @@ def run_consolidation():
    with tempfile.TemporaryDirectory() as tmpdir:
        local_ducklake_dir = os.path.join(tmpdir, "metadata")
        os.makedirs(local_ducklake_dir, exist_ok=True)
-       local_ducklake = os.path.join(local_ducklake_dir, "metadata.ducklake")
-       s3_ducklake_key = "metadata.ducklake"
+       local_ducklake = os.path.join(local_ducklake_dir, "ais.ducklake")
+       s3_ducklake_key = "ais.ducklake"
        
        # 2. Configurer le client S3
        s3 = boto3.client(
@@ -382,7 +382,7 @@ def run_consolidation():
        
        # 8. Uploader le metadata sur S3
        # Les données Parquet sont déjà sur S3 (écrites par DuckLake via DATA_PATH)
-       exported_file = os.path.join(local_ducklake_dir, "metadata.ducklake")
+       exported_file = os.path.join(local_ducklake_dir, "ais.ducklake")
        s3.upload_file(exported_file, BUCKET_PUBLIC, s3_ducklake_key)
        print("📤 DuckLake complet (metadata + données) uploadé sur S3")
        

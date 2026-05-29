@@ -14,7 +14,7 @@ def get_duckdb_connection():
     # Activation du protocole HTTPFS pour lire le S3 d'OVH
     con.execute("INSTALL httpfs; LOAD httpfs;")
     con.execute("""
-        ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/metadata.ducklake' AS ais 
+        ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/ais.ducklake' AS ais 
         (TYPE ducklake, AUTOMATIC_MIGRATION true);
     """)
     return con

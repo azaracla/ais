@@ -34,8 +34,9 @@ export async function initDuckDB() {
   conn = await db.connect();
   
   await conn.query("SET enable_object_cache=true;");
+  await conn.query("CREATE VIEW vessels AS SELECT * FROM read_parquet('https://ais-public-prod.s3.gra.io.cloud.ovh.net/gold/vessels.parquet');")
   // Multi-threading is disabled here to maintain compatibility with the ducklake extension and external map tiles
-  await conn.query(`ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/metadata.ducklake' AS ais (TYPE ducklake)`);
+  await conn.query(`ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/ais.ducklake' AS ais (TYPE ducklake)`);
   const count = await conn.query("SELECT COUNT(*) as cnt FROM ais.messages LIMIT 1;");
   console.log('DuckDB initialized. Valid records:', count.toArray()[0]?.cnt ?? 0);
 }
@@ -78,9 +79,10 @@ export async function queryLastPositions(timeRange, options = {}) {
           AND lon IS NOT NULL
           ${spatialFilter}
       )
-      SELECT mmsi, lat, lon, cog, sog, name, imo_number, message_type, ship_type, ts
-      FROM ranked 
-      WHERE rn = 1 
+      SELECT mmsi, lat, lon, cog, sog, v.name, v.imo_number, message_type, v.ship_type, ts
+      FROM ranked
+      LEFT JOIN vessels v USING (mmsi)
+      WHERE rn = 1
       LIMIT ${limit}
     `);
     

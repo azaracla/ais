@@ -269,8 +269,8 @@ class AISVisualizer {
     };
 
     // Adapt limit based on zoom
-    let limit = 1000;
-    if (zoom >= 5) limit = 3000;
+    let limit = 30000;
+    if (zoom >= 5) limit = 30000;
     if (zoom >= 7) limit = 10000;
     if (zoom >= 10) limit = 50000;
 

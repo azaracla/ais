@@ -39,11 +39,11 @@ Le projet fournit un entrepôt de données analytique public, transactionnel et 
                                   │
                                   ▼
                [ BUCKET OVH PUBLIC : ais-public-prod (DuckLake) ]
-                    s3://ais-public-prod/metadata.ducklake
+                    s3://ais-public-prod/ais.ducklake
                                   │
                                   ▼
                    [ UTILISATEURS FINAUX (Lecture Seule) ]
-               ATTACH 'ducklake:s3://ais-public-prod/metadata.ducklake'
+               ATTACH 'ducklake:s3://ais-public-prod/ais.ducklake'
 
 📋 3. Format des Messages & Schémas Tabulaires Cibles (Spécifications SQL)
 Table 1 : positions
@@ -513,7 +513,7 @@ def run_consolidation():
    con.execute(f"SET s3_secret_access_key = '{OVH_SECRET_KEY}';")
    con.execute("SET s3_url_style = 'path';")
    
-   ducklake_uri = f"s3://{BUCKET_PUBLIC}/metadata.ducklake"
+   ducklake_uri = f"s3://{BUCKET_PUBLIC}/ais.ducklake"
    data_uri = f"s3://{BUCKET_PUBLIC}/data_files/"
    
    # Amorçage transactionnel DuckLake
