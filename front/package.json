@@ -9,7 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.3.2",
+    "@deck.gl/layers": "^9.3.2",
     "@duckdb/duckdb-wasm": "^1.33.1-dev54.0",
+    "apache-arrow": "^14.0.2",
     "three": "^0.160.0"
   },
   "devDependencies": {

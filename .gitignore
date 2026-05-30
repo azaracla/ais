@@ -84,4 +84,5 @@ raw_*
 Thumbs.db
 
 silver/
+gold/
 vessels.parquet

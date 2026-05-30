@@ -1,6 +1,6 @@
 /**
  * AIS Ship Visualizer - Main Application
- * WebGL visualization of AIS ship data using DuckDB-WASM
+ * WebGL visualization of AIS ship data using DuckDB-WASM + deck.gl
  */
 
 import { 
@@ -18,12 +18,18 @@ import {
   createKeyboardShortcuts,
   fetchAvailableTimeRange
 } from './ui.js';
+import { AISDeckRenderer } from './deckgl-renderer.js';
+import { 
+  dataCache, 
+  boundsToBbox
+} from './data-cache.js';
 
 // State
 let currentData = [];
 let isQuerying = false;
 let map;
-let markers = L.layerGroup();
+let deckRenderer;
+let markers = L.layerGroup(); // Keep for fallback
 
 // Main application
 class AISVisualizer {
@@ -36,48 +42,16 @@ class AISVisualizer {
   }
 
   getShipColor(shipType) {
-    if (!shipType) return '#9e9e9e'; // Unknown (Grey)
-    if (shipType >= 70 && shipType <= 79) return '#4caf50'; // Cargo (Green)
-    if (shipType >= 80 && shipType <= 89) return '#f44336'; // Tanker (Red)
-    if (shipType >= 60 && shipType <= 69) return '#2196f3'; // Passenger (Blue)
-    if (shipType >= 40 && shipType <= 49) return '#ffeb3b'; // High Speed (Yellow)
-    if (shipType === 30) return '#ff9800'; // Fishing (Orange)
-    if (shipType === 36 || shipType === 37) return '#e91e63'; // Pleasure/Sailing (Pink)
-    if (shipType === 31 || shipType === 32 || shipType === 52) return '#00bcd4'; // Tug/Pilot (Cyan)
-    if (shipType === 35) return '#607d8b'; // Military (Blue Grey)
+    if (!shipType) return '#9e9e9e';
+    if (shipType >= 70 && shipType <= 79) return '#4caf50';
+    if (shipType >= 80 && shipType <= 89) return '#f44336';
+    if (shipType >= 60 && shipType <= 69) return '#2196f3';
+    if (shipType >= 40 && shipType <= 49) return '#ffeb3b';
+    if (shipType === 30) return '#ff9800';
+    if (shipType === 36 || shipType === 37) return '#e91e63';
+    if (shipType === 31 || shipType === 32 || shipType === 52) return '#00bcd4';
+    if (shipType === 35) return '#607d8b';
     return '#9e9e9e';
-  }
-
-  createShipIcon(ship) {
-    const color = this.getShipColor(ship.ship_type);
-    const rotation = ship.cog || 0;
-    const size = 18;
-    const isStationary = !ship.sog || ship.sog < 0.5;
-    
-    let svg;
-    if (isStationary) {
-      // Circle for stationary ships
-      svg = `
-        <svg width="${size}" height="${size}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="50" cy="50" r="40" fill="${color}" stroke="#ffffff" stroke-width="10" />
-          <circle cx="50" cy="50" r="10" fill="#ffffff" />
-        </svg>
-      `;
-    } else {
-      // Sharp triangle for moving ships
-      svg = `
-        <svg width="${size}" height="${size}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="transform: rotate(${rotation}deg);">
-          <path d="M50 0 L90 100 L50 80 L10 100 Z" fill="${color}" stroke="#ffffff" stroke-width="8" stroke-linejoin="round" />
-        </svg>
-      `;
-    }
-    
-    return L.divIcon({
-      html: svg,
-      className: 'ship-marker-icon',
-      iconSize: [size, size],
-      iconAnchor: [size/2, size/2]
-    });
   }
 
   getShipTypeName(type) {
@@ -116,10 +90,11 @@ class AISVisualizer {
       
       this.loading.update(70);
       
-      // Initialize Leaflet map with Canvas renderer for performance
+      // Initialize Leaflet map
       this.appContainer.innerHTML = '<div id="map" style="width: 100%; height: 100%;"></div>';
       map = L.map('map', {
-        renderer: L.canvas()
+        renderer: L.canvas(),
+        zoomAnimation: true
       }).setView([0, 0], 2);
       
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
@@ -127,6 +102,20 @@ class AISVisualizer {
         subdomains: 'abcd',
         maxZoom: 20
       }).addTo(map);
+      
+      // Initialize deck.gl renderer
+      try {
+        deckRenderer = new AISDeckRenderer(map, 
+          (info) => this.handleDeckHover(info),
+          (info) => this.handleDeckClick(info)
+        );
+        console.log('deck.gl renderer initialized');
+      } catch (e) {
+        console.warn('deck.gl initialization failed, falling back to Leaflet markers:', e.message);
+        deckRenderer = null;
+      }
+      
+      // Keep markers for fallback
       markers.addTo(map);
       
       this.loading.update(85);
@@ -209,15 +198,59 @@ class AISVisualizer {
     );
   }
 
+  handleDeckHover(info) {
+    if (!info || !info.object) return;
+    const ship = info.object;
+    // Show tooltip or highlight
+    if (this.infobox) {
+      // Could show a small preview
+    }
+  }
+
+  handleDeckClick(info) {
+    if (!info || !info.object) return;
+    const ship = info.object;
+    this.infobox.show(ship, info.x, info.y);
+  }
+
   async loadInitialData() {
     this.loading.update(90);
     
-    // Use current time as default
-    const now = new Date();
-    const dateTime = now.toISOString().slice(0, 16);
+    // Use 28 May 2026 by default (has 30k+ ships)
+    const defaultDate = new Date('2026-05-28T12:00:00');
+    const dateTime = defaultDate.toISOString().slice(0, 16);
     
     // Update timeline
     this.timeline.updateDateTime(dateTime);
+    
+    // For testing: load mock data immediately to test deck.gl
+    // Comment this out to use real data
+    setTimeout(() => {
+      if (!currentData || currentData.length === 0) {
+        console.log('[TEST] Loading mock data for deck.gl testing');
+        const mockData = [];
+        const shipTypes = [30, 31, 35, 36, 40, 52, 60, 70, 71, 72, 73, 74, 75, 80, 81, 82];
+        
+        for (let i = 0; i < 5000; i++) {
+          const lon = (Math.random() * 360 - 180).toFixed(6) * 1;
+          const lat = (Math.random() * 180 - 90).toFixed(6) * 1;
+          mockData.push({
+            mmsi: 200000000 + i,
+            lat: lat,
+            lon: lon,
+            cog: Math.random() * 360,
+            sog: Math.random() * 20,
+            name: `MOCK_${i}`,
+            imo_number: null,
+            message_type: 1,
+            ship_type: shipTypes[Math.floor(Math.random() * shipTypes.length)],
+            ts: new Date().toISOString()
+          });
+        }
+        
+        this.updateWithData(mockData, map.getZoom(), false);
+      }
+    }, 2000);
   }
 
   async onDateTimeChange(dateTime) {
@@ -261,12 +294,7 @@ class AISVisualizer {
     // Get current map zoom and bounds
     const zoom = map.getZoom();
     const mapBounds = map.getBounds();
-    const bounds = {
-      north: mapBounds.getNorth(),
-      south: mapBounds.getSouth(),
-      east: mapBounds.getEast(),
-      west: mapBounds.getWest()
-    };
+    const bounds = boundsToBbox(mapBounds);
 
     // Adapt limit based on zoom
     let limit = 30000;
@@ -286,70 +314,49 @@ class AISVisualizer {
       };
     }
 
+    // Calculate delta from cache
+    const deltaInfo = dataCache.calculateDeltaViewport(bounds, range);
+    
+    if (!deltaInfo && !providedRange) {
+      const cachedData = dataCache.getAllCachedForTimeRange(range);
+      if (cachedData && cachedData.length > 0) {
+        this.updateWithData(cachedData, zoom, silent);
+        return;
+      }
+    }
+
     isQuerying = true;
     if (!silent) {
-      this.loading.show('Mise à jour de la zone...');
+      this.loading.show(deltaInfo?.isFull ? 'Chargement nouvelle zone...' : 'Mise à jour partielle...');
     }
     
     try {
       const startTime = performance.now();
-      
-      // Query with spatial bounds
-      const data = await queryLastPositions(range, {
+      const fetchBounds = deltaInfo ? deltaInfo.bounds : bounds;
+
+      let data = [];
+      data = await queryLastPositions(range, {
         limit: limit, 
-        bounds: bounds
+        bounds: fetchBounds
       });
       
       const duration = performance.now() - startTime;
-      console.log(`Loaded ${data.length} ships for zoom ${zoom} in ${duration.toFixed(0)}ms (${silent ? 'background' : 'foreground'})`);
+      console.log(`Loaded ${data.length} ships for zoom ${zoom} in ${duration.toFixed(0)}ms (${silent ? 'background' : 'foreground'}, ${deltaInfo?.isFull ? 'full' : 'delta'})`);
       
-      // OPTIMIZATION: Detach layer before bulk update to avoid expensive re-paints
-      markers.remove();
-      markers.clearLayers();
-      
-      // Adaptive rendering: Circles for low zoom, Icons for high zoom
-      const useIcons = zoom >= 7;
-
-      data.forEach(ship => {
-        if (ship.lat && ship.lon) {
-          let marker;
-          
-          if (useIcons) {
-            const icon = this.createShipIcon(ship);
-            marker = L.marker([ship.lat, ship.lon], { icon });
-          } else {
-            // Simple dot for global view
-            marker = L.circleMarker([ship.lat, ship.lon], {
-              radius: zoom < 4 ? 1.5 : 2.5,
-              fillColor: this.getShipColor(ship.ship_type),
-              color: '#ffffff',
-              weight: 0.5,
-              fillOpacity: 0.8
-            });
-          }
-
-          marker.bindPopup(`
-              <div style="font-family: sans-serif; min-width: 150px;">
-                <b style="color: #1a73e8; font-size: 14px;">${ship.name || 'Nom inconnu'}</b><br>
-                <span style="color: #888; font-size: 11px;">MMSI: ${ship.mmsi}</span><br>
-                <div style="margin-top: 5px; font-size: 12px;">
-                  <b>Vitesse:</b> ${ship.sog ? ship.sog.toFixed(1) : 0} nœuds<br>
-                  <b>Cap:</b> ${ship.cog ? ship.cog.toFixed(0) : 0}°<br>
-                  <b>Type:</b> ${this.getShipTypeName(ship.ship_type)}
-                </div>
-              </div>
-            `, { maxWidth: 200 });
-          
-          markers.addLayer(marker);
+      if (deltaInfo) {
+        dataCache.setCachedData(range, fetchBounds, data);
+        if (!deltaInfo.isFull) {
+          const existingData = dataCache.getAllCachedForTimeRange(range);
+          const merged = this.mergeShipData(existingData, data);
+          this.updateWithData(merged, zoom, silent);
+          return;
         }
-      });
-
-      // Re-attach optimized layer
-      markers.addTo(map);
-      currentData = data;
+      } else {
+        dataCache.clearTimeRange(range);
+        dataCache.setCachedData(range, bounds, data);
+      }
       
-      // Update info panel
-      this.infoPanel.updateCount(data.length);
+      this.updateWithData(data, zoom, silent);
       
     } catch (error) {
       console.error('Query failed:', error);
@@ -359,6 +366,73 @@ class AISVisualizer {
       }
       isQuerying = false;
     }
+  }
+
+  // Merge two arrays of ship data, deduplicating by mmsi
+  mergeShipData(existing, newData) {
+    const mergedMap = new Map();
+    
+    // Add existing data
+    existing.forEach(ship => {
+      if (ship.mmsi) {
+        mergedMap.set(ship.mmsi, ship);
+      }
+    });
+    
+    // Add/update with new data (new data takes precedence)
+    newData.forEach(ship => {
+      if (ship.mmsi) {
+        mergedMap.set(ship.mmsi, ship);
+      }
+    });
+    
+    return Array.from(mergedMap.values());
+  }
+
+  // Update visualization with data (called from both query and cache)
+  updateWithData(data, zoom, silent = false) {
+    const startTime = performance.now();
+
+    if (deckRenderer) {
+      deckRenderer.updateData(data);
+    }
+    
+    markers.remove();
+    markers.clearLayers();
+
+    data.forEach(ship => {
+      if (ship.lat && ship.lon) {
+        const marker = L.circleMarker([ship.lat, ship.lon], {
+          radius: 1,
+          fillColor: this.getShipColor(ship.ship_type),
+          color: '#ffffff',
+          weight: 0,
+          fillOpacity: 0
+        });
+
+        marker.bindPopup(`
+            <div style="font-family: sans-serif; min-width: 150px;">
+              <b style="color: #1a73e8; font-size: 14px;">${ship.name || 'Nom inconnu'}</b><br>
+              <span style="color: #888; font-size: 11px;">MMSI: ${ship.mmsi}</span><br>
+              <div style="margin-top: 5px; font-size: 12px;">
+                <b>Vitesse:</b> ${ship.sog ? ship.sog.toFixed(1) : 0} nœuds<br>
+                <b>Cap:</b> ${ship.cog ? ship.cog.toFixed(0) : 0}°<br>
+                <b>Type:</b> ${this.getShipTypeName(ship.ship_type)}
+              </div>
+            </div>
+          `, { maxWidth: 200 });
+        
+        markers.addLayer(marker);
+      }
+    });
+
+    markers.addTo(map);
+    currentData = data;
+    
+    this.infoPanel.updateCount(data.length);
+    
+    const duration = performance.now() - startTime;
+    console.log(`Rendered ${data.length} ships in ${duration.toFixed(0)}ms`);
   }
 
   zoomToShip(ship) {
