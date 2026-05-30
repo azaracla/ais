@@ -9,6 +9,7 @@ export interface Vessel {
   speed: number;
   shipType: ShipType;
   destination?: string;
+  ts?: string;
 }
 
 export interface Bounds {

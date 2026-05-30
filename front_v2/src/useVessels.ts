@@ -12,7 +12,7 @@ export function useVessels(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const genRef = useRef(0);
 
   useEffect(() => {

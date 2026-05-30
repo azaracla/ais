@@ -1,21 +1,8 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
 import duckdb_wasm_eh from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
-import duckdb_wasm_mvp from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import DuckDBWorkerEH from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?worker";
-import DuckDBWorkerMVP from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?worker";
 import type { Vessel, Bounds } from "./types";
 import { shipTypeAISToCategory } from "./types";
-
-const BUNDLES = {
-  mvp: {
-    mainModule: duckdb_wasm_mvp,
-    mainWorker: DuckDBWorkerMVP,
-  },
-  eh: {
-    mainModule: duckdb_wasm_eh,
-    mainWorker: DuckDBWorkerEH,
-  },
-};
 
 let db: duckdb.AsyncDuckDB | null = null;
 let conn: duckdb.AsyncDuckDBConnection | null = null;
@@ -38,10 +25,9 @@ export async function initDuckDB(): Promise<void> {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    const bundle = await duckdb.selectBundle(BUNDLES);
-    const worker = new bundle.mainWorker();
+    const worker = new DuckDBWorkerEH();
     db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
-    await db.instantiate(bundle.mainModule, "?modulePath=");
+    await db.instantiate(duckdb_wasm_eh, "?modulePath=");
     conn = await db.connect();
 
     await conn.query("SET enable_object_cache=true;");
@@ -82,25 +68,19 @@ export async function queryLastPositions(
   }
 
   const sql = `
-    WITH ranked AS (
-      SELECT
-        p.mmsi, p.lat, p.lon, p.sog, p.cog, p.true_heading, p.ts,
-        ROW_NUMBER() OVER (PARTITION BY p.mmsi ORDER BY p.ts DESC) as rn
-      FROM ais.vessels_positions p
-      WHERE p.year = ${year}
-        AND p.month = '${month}'
-        AND p.day = ${day}
-        AND p.ts BETWEEN TIMESTAMP '${ts}' AND TIMESTAMP '${ts}' + INTERVAL '10 minutes'
-        AND p.lat IS NOT NULL
-        AND p.lon IS NOT NULL
-        ${spatialFilter}
-    )
-    SELECT
+    SELECT DISTINCT ON (p.mmsi)
       p.mmsi, p.lat, p.lon, p.sog, p.cog, p.true_heading,
-      v.name, v.ship_type, v.destination
-    FROM ranked p
+      p.ts, v.name, v.ship_type, v.destination
+    FROM ais.vessels_positions p
     LEFT JOIN ais.vessels v ON v.mmsi = p.mmsi
-    WHERE p.rn = 1
+    WHERE p.year = ${year}
+      AND p.month = ${parseInt(month)}
+      AND p.day = ${day}
+      AND p.ts BETWEEN TIMESTAMP '${ts}' AND TIMESTAMP '${ts}' + INTERVAL '10 minutes'
+      AND p.lat IS NOT NULL
+      AND p.lon IS NOT NULL
+      ${spatialFilter}
+    ORDER BY p.mmsi, p.ts DESC
     LIMIT ${limit}
   `;
 
@@ -141,5 +121,6 @@ function toVessel(row: any): Vessel {
     speed: Number(row.sog ?? 0),
     shipType: shipTypeAISToCategory(row.ship_type != null ? Number(row.ship_type) : null),
     destination: row.destination ?? undefined,
+    ts: row.ts ?? undefined,
   };
 }

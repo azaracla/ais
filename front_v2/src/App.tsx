@@ -33,11 +33,11 @@ function addTriangleIcons(map: maplibregl.Map) {
     ctx.strokeStyle = "rgba(0,0,0,0.35)";
     ctx.lineWidth = 0.8;
     ctx.stroke();
-    map.addImage(id, canvas);
+    map.addImage(id, ctx.getImageData(0, 0, size, size));
   }
 }
 
-function iconImageExpr(): maplibregl.Expression {
+function iconImageExpr(): maplibregl.DataDrivenPropertyValueSpecification<string> {
   const cases: (string | maplibregl.Expression)[] = [];
   for (const m of VESSEL_META) {
     cases.push(m.key);
@@ -84,7 +84,7 @@ export default function App() {
       },
       center: [3.1, 41.7],
       zoom: 4,
-      maxBounds: [[-20, 25], [45, 65]],
+      // maxBounds: [[-20, 25], [45, 65]],
       attributionControl: false,
     });
 
@@ -125,6 +125,7 @@ export default function App() {
                 <span style="color:#666">Speed</span><span>${Number(p.speed).toFixed(1)} kn</span>
                 <span style="color:#666">Heading</span><span>${p.heading}°</span>
                 ${p.destination ? `<span style="color:#666">To</span><span>${p.destination}</span>` : ""}
+                ${p.ts ? `<span style="color:#666">AIS at</span><span>${new Date(p.ts).toLocaleString()}</span>` : ""}
               </div>
             </div>`)
           .addTo(m);
@@ -134,7 +135,10 @@ export default function App() {
       sourceReady.current = true;
     }
 
-    map.on("load", () => initLayers(map));
+    map.on("load", () => {
+      updateBounds();
+      requestAnimationFrame(() => initLayers(map));
+    });
 
     const updateBounds = () => {
       const b = map.getBounds();

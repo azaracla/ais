@@ -113,6 +113,7 @@ export function vesselsToGeoJSON(vessels: Vessel[]): GeoJSON.FeatureCollection {
         speed: Math.round(v.speed * 10) / 10,
         shipType: v.shipType,
         destination: v.destination,
+        ts: v.ts,
       },
     })),
   };

@@ -282,8 +282,7 @@ def publish_ducklake(target_date: datetime, force: bool = False, rebuild_vessels
     for table_name, local_path, _ in derived_files:
         s3_key = os.path.relpath(local_path, "gold")
         all_uploads.append((local_path, f"gold/{s3_key}"))
-    if vessels_file:
-        all_uploads.append((vessels_file, "gold/vessels/vessels.parquet"))
+    all_uploads.append(("gold/vessels/vessels.parquet", "gold/vessels/vessels.parquet"))
 
     if all_uploads:
         print(f"📤 Upload de {len(all_uploads)} fichier(s) vers S3...")
@@ -329,12 +328,13 @@ def publish_ducklake(target_date: datetime, force: bool = False, rebuild_vessels
                 con.execute(f"CALL ducklake_add_data_files('ais_lake', '{table_name}', '{base_https}/{s3_key}', hive_partitioning=True)")
 
     # ── 15. Enregistrer le fichier vessels ────────────────────────────
-    if vessels_file:
-        s3_key = "gold/vessels/vessels.parquet"
-        url = f"{base_https}/{s3_key}"
-        if url not in known_paths or force:
-            print(f"📋 Enregistrement de vessels...")
-            con.execute(f"CALL ducklake_add_data_files('ais_lake', 'vessels', '{url}')")
+    vessels_s3_key = "gold/vessels/vessels.parquet"
+    vessels_url = f"{base_https}/{vessels_s3_key}"
+    if vessels_url not in known_paths or force:
+        if not os.path.exists("gold/vessels/vessels.parquet"):
+            vessels_file, _ = build_vessels_reference(con, s3, force_rebuild=False)
+        print(f"📋 Enregistrement de vessels...")
+        con.execute(f"CALL ducklake_add_data_files('ais_lake', 'vessels', '{vessels_url}')")
 
     # ── 16. Fermer et uploader le catalogue ───────────────────────────
     con.close()
