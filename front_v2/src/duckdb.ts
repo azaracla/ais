@@ -98,9 +98,13 @@ export async function queryLastPositions(
   const t0 = performance.now();
   console.log(`[DuckDB] q#${qid} ▶ bounds=[${boundsDesc}] date=${ts}`);
 
-  let result;
+  let rows: any[];
   try {
-    result = await conn.query(sql);
+    const asyncResult = await conn.send(sql);
+    rows = [];
+    for await (const chunk of asyncResult) {
+      rows.push(...chunk);
+    }
   } catch (e: any) {
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
     console.log(`[DuckDB] q#${qid} ✗ error after ${elapsed}s: ${e.message}`);
@@ -108,7 +112,6 @@ export async function queryLastPositions(
   }
 
   const t1 = performance.now();
-  const rows = result.toArray();
   const vessels = rows.map((row: any) => toVessel(row));
   const t2 = performance.now();
 
@@ -125,32 +128,42 @@ export async function queryLastPositions(
 export async function queryVesselHistory(
   mmsi: number,
   vesselTs: string | Date,
+  daysBack = 3,
 ): Promise<{ lat: number; lng: number; ts: Date }[]> {
   if (!conn) throw new Error("DuckDB not initialized");
 
-  const d = new Date(vesselTs);
-  const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = d.getUTCDate();
+  const end = new Date(vesselTs);
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - daysBack);
+  if (start > end) return [];
+
+  const startEpoch = Math.floor(start.getTime() / 1000);
+  const endEpoch = Math.floor(end.getTime() / 1000);
+  const startDate = start.toISOString().slice(0, 10);
+  const endDate = end.toISOString().slice(0, 10);
 
   const sql = `
     SELECT lat, lon, ts
-    FROM ais.vessels_positions
+    FROM ais.vessel_tracks
     WHERE mmsi = ${mmsi}
-      AND year = ${year}
-      AND month = '${month}'
-      AND day = ${day}
+      AND date >= '${startDate}'
+      AND date <= '${endDate}'
+      AND ts >= ${startEpoch}
+      AND ts <= ${endEpoch}
       AND lat IS NOT NULL
       AND lon IS NOT NULL
     ORDER BY ts ASC
-    LIMIT 5000
   `;
 
-  const result = await conn.query(sql);
-  return result.toArray().map((row: any) => ({
-    lat: Number(row.lat),
-    lng: Number(row.lon),
-    ts: row.ts instanceof Date ? row.ts : new Date(row.ts),
+  const asyncResult = await conn.send(sql);
+  const rows: any[] = [];
+  for await (const chunk of asyncResult) {
+    rows.push(...chunk);
+  }
+  return rows.map((row: any) => ({
+    lat: Number(row.lat) / 1e5,
+    lng: Number(row.lon) / 1e5,
+    ts: new Date(Number(row.ts) * 1000),
   }));
 }
 

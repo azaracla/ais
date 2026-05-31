@@ -15,21 +15,59 @@ POSITION_TYPES = frozenset({
 
 PARTITIONED_TABLES = {
     'vessels_positions': {
+        'partition_by': ('year', 'month', 'day'),
         'filter_col': 'message_type',
         'filter': f"message_type IN ({','.join(f"'{t}'" for t in POSITION_TYPES)})",
         'projection': 'message_type, mmsi, ts, lat, lon, received_at, source_listener, sog, cog, true_heading, navigational_status, rate_of_turn, message_id, position_accuracy, raim, valid, year, month, day',
+        'order_by': 'ts ASC, mmsi ASC',
+    },
+    'vessel_tracks': {
+        'partition_by': ('date',),
+        'filter_col': 'message_type',
+        'filter': f"message_type IN ({','.join(f"'{t}'" for t in POSITION_TYPES)})",
+        'projection': '''
+            mmsi::INTEGER                              AS mmsi,
+            epoch(ts)::INTEGER                         AS ts,
+            CAST(ROUND(lat * 1e5) AS INTEGER)          AS lat,
+            CAST(ROUND(lon * 1e5) AS INTEGER)          AS lon,
+            CAST(ts AS DATE)                           AS date
+        ''',
+        'order_by': 'mmsi ASC, ts ASC',
+        'downsample_seconds': 600,
+        'compression_level': 6,
     },
     'base_stations': {
+        'partition_by': ('year', 'month', 'day'),
         'filter_col': 'message_type',
         'filter': "message_type = 'BaseStationReport'",
         'projection': 'mmsi, ts, lat, lon, received_at, source_listener, message_id, raim, year, month, day',
+        'order_by': 'ts ASC, mmsi ASC',
     },
     'aids_to_navigation': {
+        'partition_by': ('year', 'month', 'day'),
         'filter_col': 'message_type',
         'filter': "message_type = 'AidsToNavigationReport'",
         'projection': 'mmsi, name, type_of_aton, ts, lat, lon, dimension_a, dimension_b, dimension_c, dimension_d, off_position, virtual_aton, raim, received_at, source_listener, year, month, day',
+        'order_by': 'ts ASC, mmsi ASC',
     },
 }
+
+
+def partition_path_and_where(partition_by, target_date):
+    if partition_by == ('year', 'month', 'day'):
+        path = f"year={target_date.year}/month={target_date.month:02d}/day={target_date.day:02d}"
+        where = f"year = {target_date.year} AND month = '{target_date.month:02d}' AND day = {target_date.day}"
+    elif partition_by == ('date',):
+        ds = target_date.strftime('%Y-%m-%d')
+        path = f"date={ds}"
+        where = f"date = '{ds}'"
+    else:
+        raise ValueError(f"Unsupported partition_by: {partition_by}")
+    return path, where
+
+
+def partition_by_clause(partition_by):
+    return '(' + ', '.join(partition_by) + ')'
 
 
 def extract_derived_tables(con, target_date, local_silver):
@@ -39,16 +77,43 @@ def extract_derived_tables(con, target_date, local_silver):
         return derived
 
     for table_name, cfg in PARTITIONED_TABLES.items():
-        out_dir = f"gold/{table_name}/year={target_date.year}/month={target_date.month:02d}/day={target_date.day:02d}"
+        partition_by = cfg.get('partition_by', ('year', 'month', 'day'))
+        part_path, _ = partition_path_and_where(partition_by, target_date)
+        out_dir = f"gold/{table_name}/{part_path}"
         os.makedirs(out_dir, exist_ok=True)
         out_file = os.path.join(out_dir, f"{table_name}.parquet")
-        con.execute(f"""
-            COPY (
+        parquet_version = "'v2'" if table_name == 'vessel_tracks' else "'v1'"
+
+        compression_level = cfg.get('compression_level', 3)
+
+        if 'downsample_seconds' in cfg:
+            interval = cfg['downsample_seconds']
+            select_cols = ', '.join(
+                line.split('AS')[-1].strip().rstrip(',')
+                for line in cfg['projection'].strip().split('\n')
+                if line.strip() and not line.strip().startswith('--')
+            )
+            query = f"""
+                SELECT {select_cols}
+                FROM (
+                    SELECT {cfg['projection']},
+                           epoch(ts)::INTEGER // {interval} AS _bucket,
+                           ROW_NUMBER() OVER (PARTITION BY mmsi, epoch(ts)::INTEGER // {interval} ORDER BY ts ASC) AS _rn
+                    FROM read_parquet('{silver_glob}', hive_partitioning=true)
+                    WHERE {cfg['filter']}
+                ) WHERE _rn = 1
+                ORDER BY {cfg['order_by']}
+            """
+        else:
+            query = f"""
                 SELECT {cfg['projection']}
                 FROM read_parquet('{silver_glob}', hive_partitioning=true)
                 WHERE {cfg['filter']}
-                ORDER BY ts ASC, mmsi ASC
-            ) TO '{out_file}' (FORMAT 'PARQUET', COMPRESSION 'ZSTD')
+                ORDER BY {cfg['order_by']}
+            """
+
+        con.execute(f"""
+            COPY ({query}) TO '{out_file}' (FORMAT 'PARQUET', COMPRESSION 'ZSTD', COMPRESSION_LEVEL {compression_level}, PARQUET_VERSION {parquet_version})
         """)
         count = con.execute(f"SELECT count(*) FROM '{out_file}'").fetchone()[0]
         derived.append((table_name, out_file, out_dir))
@@ -90,9 +155,12 @@ def build_vessels_reference(con, s3, force_rebuild=False):
     return local_file, True
 
 
-def delete_partition(con, table_name, target_date):
+def delete_partition(con, table_name, target_date, partition_by=None):
+    if partition_by is None:
+        partition_by = ('year', 'month', 'day')
+    _, where = partition_path_and_where(partition_by, target_date)
     try:
-        con.execute(f"DELETE FROM ais_lake.{table_name} WHERE year = {target_date.year} AND month = {target_date.month} AND day = {target_date.day}")
+        con.execute(f"DELETE FROM ais_lake.{table_name} WHERE {where}")
         return True
     except Exception as e:
         print(f"   ⚠️ DELETE sur {table_name} : {e}")
@@ -215,7 +283,7 @@ def publish_ducklake(target_date: datetime, force: bool = False, rebuild_vessels
                     SELECT {cfg['projection']} FROM read_parquet('{silver_glob_tables}', hive_partitioning=true) WITH NO DATA
             """)
             try:
-                con.execute(f"ALTER TABLE ais_lake.{table_name} SET PARTITIONED BY (year, month, day);")
+                con.execute(f"ALTER TABLE ais_lake.{table_name} SET PARTITIONED BY {partition_by_clause(cfg.get('partition_by', ('year', 'month', 'day')))};")
             except Exception:
                 pass
             print(f"🗂️  Table '{table_name}' initialisée")
@@ -244,7 +312,7 @@ def publish_ducklake(target_date: datetime, force: bool = False, rebuild_vessels
                             SELECT {cfg['projection']} FROM read_parquet('{silver_glob_tables}', hive_partitioning=true) WITH NO DATA
                     """)
                     try:
-                        con.execute(f"ALTER TABLE ais_lake.{table_name} SET PARTITIONED BY (year, month, day);")
+                        con.execute(f"ALTER TABLE ais_lake.{table_name} SET PARTITIONED BY {partition_by_clause(cfg.get('partition_by', ('year', 'month', 'day')))};")
                     except Exception:
                         pass
                     print(f"🗂️  Table '{table_name}' créée (catalogue existant)")
@@ -265,8 +333,8 @@ def publish_ducklake(target_date: datetime, force: bool = False, rebuild_vessels
     if force and not is_new:
         print(f"🗑️  Mode FORCE : Nettoyage des données pour le {target_date.strftime('%Y-%m-%d')}")
         delete_partition(con, 'messages', target_date)
-        for table_name in PARTITIONED_TABLES:
-            delete_partition(con, table_name, target_date)
+        for table_name, cfg in PARTITIONED_TABLES.items():
+            delete_partition(con, table_name, target_date, cfg.get('partition_by'))
     elif force and is_new:
         print("✨ Mode FORCE sur nouveau catalogue : rien à nettoyer")
 
@@ -347,7 +415,7 @@ def publish_ducklake(target_date: datetime, force: bool = False, rebuild_vessels
     )
     print("📤 ais.ducklake publié avec succès !")
     print(f"   → ATTACH 'https://{BUCKET_PUBLIC}.s3.gra.io.cloud.ovh.net/ais.ducklake' AS ais (TYPE ducklake);")
-    print(f"   → Tables disponibles : messages, vessels_positions, base_stations, aids_to_navigation, vessels")
+    print(f"   → Tables disponibles : messages, vessels_positions, vessel_tracks, base_stations, aids_to_navigation, vessels")
 
 
 def drop_table_from_catalog(table_name: str):
@@ -391,11 +459,40 @@ def drop_table_from_catalog(table_name: str):
     print(f"✅ Table '{table_name}' supprimée et catalogue republié")
 
 
+def parse_date(s: str) -> datetime:
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        print(f"❌ Format de date invalide : '{s}'. Utilisez YYYY-MM-DD (ex: 2026-05-26)")
+        exit(1)
+
+
+def date_range(start: datetime, end: datetime) -> list[datetime]:
+    days = []
+    d = start
+    while d <= end:
+        days.append(d)
+        d += timedelta(days=1)
+    return days
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Publication du catalogue DuckLake vers S3 public")
     parser.add_argument(
         "--date",
         help="Date au format YYYY-MM-DD. Par défaut : hier.",
+        type=str, default=None
+    )
+    parser.add_argument(
+        "--from",
+        dest="start_date",
+        help="Date de début (incluse) pour une plage. Format YYYY-MM-DD.",
+        type=str, default=None
+    )
+    parser.add_argument(
+        "--to",
+        dest="end_date",
+        help="Date de fin (incluse) pour une plage. Format YYYY-MM-DD.",
         type=str, default=None
     )
     parser.add_argument(
@@ -419,13 +516,18 @@ if __name__ == "__main__":
         drop_table_from_catalog(args.drop_table)
         exit(0)
 
-    if args.date:
-        try:
-            target_date = datetime.strptime(args.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        except ValueError:
-            print("❌ Format de date invalide. Utilisez YYYY-MM-DD (ex: 2026-05-26)")
-            exit(1)
+    if args.start_date and args.end_date:
+        dates = date_range(parse_date(args.start_date), parse_date(args.end_date))
+    elif args.start_date:
+        print("❌ --from nécessite --to")
+        exit(1)
+    elif args.end_date:
+        print("❌ --to nécessite --from")
+        exit(1)
+    elif args.date:
+        dates = [parse_date(args.date)]
     else:
-        target_date = datetime.now(timezone.utc) - timedelta(days=1)
+        dates = [datetime.now(timezone.utc) - timedelta(days=1)]
 
-    publish_ducklake(target_date, force=args.force, rebuild_vessels=args.rebuild_vessels)
+    for target_date in dates:
+        publish_ducklake(target_date, force=args.force, rebuild_vessels=args.rebuild_vessels)

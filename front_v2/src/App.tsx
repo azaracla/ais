@@ -2,7 +2,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useRef, useEffect, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { useVessels } from "./useVessels";
-import { queryVesselHistory } from "./duckdb";
+import { queryVesselHistory, cancelQuery } from "./duckdb";
 import { useSatellite } from "./useSatellite";
 import { useDraw } from "./useDraw";
 import SatelliteControls from "./SatelliteControls";
@@ -199,7 +199,7 @@ export default function App() {
         },
       }, "vessel-point");
 
-      m.on("click", "vessel-point", (e) => {
+      m.on("click", "vessel-point", async (e) => {
         const f = e.features?.[0];
         if (!f) return;
         const p = f.properties;
@@ -234,6 +234,7 @@ export default function App() {
         // Fetch trajectory asynchronously
         const gen = ++trajectoryGenRef.current;
         if (mmsi && p.ts && trajSource) {
+          await cancelQuery();
           queryVesselHistory(mmsi, p.ts).then((positions) => {
             if (gen !== trajectoryGenRef.current || !trajSource) return;
             if (positions.length < 2) return;
