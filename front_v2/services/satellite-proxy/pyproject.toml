@@ -1,0 +1,12 @@
+[project]
+name = "satellite-proxy"
+version = "0.1.0"
+description = "Sentinel-1 and Sentinel-2 tile proxy via Google Earth Engine"
+requires-python = ">=3.11"
+dependencies = [
+    "cachetools>=7.1.4",
+    "earthengine-api>=1.7.26",
+    "fastapi>=0.136.3",
+    "httpx>=0.28.1",
+    "uvicorn>=0.48.0",
+]

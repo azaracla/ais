@@ -1,4 +1,5 @@
 export type ShipType = "cargo" | "tanker" | "passenger" | "fishing" | "pleasure";
+export type Sensor = "S1" | "S2";
 
 export interface Vessel {
   id: number;

@@ -28,6 +28,17 @@ export async function initDuckDB(): Promise<void> {
     const worker = new DuckDBWorkerEH();
     db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
     await db.instantiate(duckdb_wasm_eh, "?modulePath=");
+
+    // forceFullHTTPReads doit être explicitement false (défaut: true).
+    // OVH S3 répond correctement au HEAD+Range → reliableHeadRequests: true.
+    await db.open({
+      filesystem: {
+        allowFullHTTPReads: false,
+        reliableHeadRequests: true,
+        forceFullHTTPReads: false,
+      },
+    });
+
     conn = await db.connect();
 
     await conn.query("SET enable_object_cache=true;");
@@ -74,7 +85,7 @@ export async function queryLastPositions(
     FROM ais.vessels_positions p
     LEFT JOIN ais.vessels v ON v.mmsi = p.mmsi
     WHERE p.year = ${year}
-      AND p.month = ${parseInt(month)}
+      AND p.month = '${month}'
       AND p.day = ${day}
       AND p.ts BETWEEN TIMESTAMP '${ts}' AND TIMESTAMP '${ts}' + INTERVAL '10 minutes'
       AND p.lat IS NOT NULL
@@ -109,6 +120,38 @@ export async function queryLastPositions(
   );
 
   return vessels;
+}
+
+export async function queryVesselHistory(
+  mmsi: number,
+  vesselTs: string | Date,
+): Promise<{ lat: number; lng: number; ts: Date }[]> {
+  if (!conn) throw new Error("DuckDB not initialized");
+
+  const d = new Date(vesselTs);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = d.getUTCDate();
+
+  const sql = `
+    SELECT lat, lon, ts
+    FROM ais.vessels_positions
+    WHERE mmsi = ${mmsi}
+      AND year = ${year}
+      AND month = '${month}'
+      AND day = ${day}
+      AND lat IS NOT NULL
+      AND lon IS NOT NULL
+    ORDER BY ts ASC
+    LIMIT 5000
+  `;
+
+  const result = await conn.query(sql);
+  return result.toArray().map((row: any) => ({
+    lat: Number(row.lat),
+    lng: Number(row.lon),
+    ts: row.ts instanceof Date ? row.ts : new Date(row.ts),
+  }));
 }
 
 function toVessel(row: any): Vessel {

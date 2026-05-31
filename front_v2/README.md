@@ -1,73 +1,60 @@
-# React + TypeScript + Vite
+# front_v2 — AIS Vessel Tracker
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Application React + DuckDB WASM pour visualiser les positions AIS en temps réel via DuckLake.
 
-Currently, two official plugins are available:
+## DuckDB WASM : HTTP Range Requests
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Les fichiers Parquet (113–298 Mo par jour) sont servis depuis OVH S3. DuckDB WASM utilise des **Range Requests** (requêtes partielles HTTP) pour ne télécharger que les row groups nécessaires à la requête.
 
-## React Compiler
+### Problème
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+OVH S3 répond mal au `HEAD` avec `Range: bytes=0-` — DuckDB croit que le serveur ne supporte pas les requêtes partielles et **télécharge le fichier entier** (113 Mo+).
 
-## Expanding the ESLint configuration
+Avec la détection HEAD défaillante, `forceFullHTTPReads` par défaut à `true` force le full read.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### CORS S3
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Le bucket S3 doit exposer les headers `Content-Range` et `Accept-Ranges` et autoriser le header `Range` pour que le navigateur accepte les réponses 206 Partial Content :
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```json
+{
+  "CORSRules": [{
+    "AllowedOrigins": ["*"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["Range"],
+    "ExposeHeaders": ["Content-Range", "Accept-Ranges", "Content-Length", "ETag"]
+  }]
+}
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+(`infra/cors.json`)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Solution
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
+Dans `src/duckdb.ts:initDuckDB()`, avant `db.connect()` :
+
+```typescript
+await db.open({
+  filesystem: {
+    allowFullHTTPReads: false,   // interdit le fallback full read
+    reliableHeadRequests: true,  // OVH S3 répond correctement au HEAD+Range
+    forceFullHTTPReads: false,   // crucial : défaut à true si absent
   },
-])
+});
 ```
+
+`forceFullHTTPReads` **doit** être passé explicitement à `false` — s'il est absent, il défaut à `true`, ce qui force le téléchargement complet même avec des Range Requests fonctionnelles.
+
+### Résultat
+
+| Avant | Après |
+|---|---|
+| 1 requête GET, 113 Mo | ~500 requêtes GET avec `Range: bytes=X-Y`, ~5 Mo |
+
+Le nombre de requêtes et le volume exact dépendent de la fenêtre temporelle et du nombre de row groups Parquet lus.
+
+## Pipeline aval
+
+L'ordre des données dans les fichiers Parquet est crucial : les row groups doivent être triés par `ts ASC, mmsi ASC` pour que DuckDB puisse les skipper via les statistiques min/max.
+
+Voir `publish_ducklake.py` — le `ORDER BY ts ASC, mmsi ASC` garantit que chaque row group couvre ~13 min de données, ce qui permet au filtre `ts BETWEEN` de ne lire que 1–2 row groups.

@@ -47,6 +47,7 @@ def extract_derived_tables(con, target_date, local_silver):
                 SELECT {cfg['projection']}
                 FROM read_parquet('{silver_glob}', hive_partitioning=true)
                 WHERE {cfg['filter']}
+                ORDER BY ts ASC, mmsi ASC
             ) TO '{out_file}' (FORMAT 'PARQUET', COMPRESSION 'ZSTD')
         """)
         count = con.execute(f"SELECT count(*) FROM '{out_file}'").fetchone()[0]
