@@ -50,12 +50,8 @@ SCHEMA = pa.schema([
     pa.field("off_position",        pa.bool_()),
     pa.field("virtual_aton",        pa.bool_()),
     pa.field("raw_message",         pa.string()),
+    pa.field("metadata_json",       pa.string()),
 ])
-
-POSITION_TYPES = frozenset({
-    'PositionReport', 'ExtendedClassBPositionReport',
-    'StandardClassBPositionReport', 'LongRangeAisBroadcast',
-})
 
 BUCKET_SILVER = BUCKET_RAW
 
@@ -117,6 +113,11 @@ def extract_record(data: dict) -> dict:
     elif mtype == 'AidsToNavigationReport': name = sub.get('Name')      or metadata.get('ShipName')
     else:                                   name = metadata.get('ShipName')
 
+    # AidsToNavigationReport uses 'Fixtype' (lowercase t) instead of 'FixType'
+    fix_raw = sub.get('FixType')
+    if fix_raw is None and mtype == 'AidsToNavigationReport':
+        fix_raw = sub.get('Fixtype')
+
     return {
         'message_type':        mtype,
         'mmsi':                metadata.get('MMSI'),
@@ -146,11 +147,12 @@ def extract_record(data: dict) -> dict:
         'destination':         sub.get('Destination') or report_a.get('Destination'),
         'eta':                 parse_eta(sub.get('Eta')),
         'dte':                 sub.get('Dte') or report_a.get('Dte'),
-        'fix_type':            sub.get('FixType'),
+        'fix_type':            fix_raw,
         'type_of_aton':        sub.get('Type') if mtype == 'AidsToNavigationReport' else None,
         'off_position':        sub.get('OffPosition'),
-        'virtual_aton':        sub.get('VirtualAidsToNavigation'),
-        'raw_message':         orjson.dumps(message).decode() if mtype not in POSITION_TYPES else None,
+        'virtual_aton':        sub.get('VirtualAtoN'),
+        'raw_message':         orjson.dumps(message).decode(),
+        'metadata_json':       orjson.dumps(metadata).decode(),
     }
 
 
@@ -198,7 +200,9 @@ def _worker(args: tuple) -> tuple[int, int, str]:
                 if not line.strip(): continue
                 try:
                     data = orjson.loads(line)
-                    if not data.get('metadata', {}).get('MMSI'): continue
+                    if not data.get('metadata', {}).get('MMSI'):
+                        parse_errors += 1
+                        continue
                     rec = extract_record(data)
                     
                     if not rec['message_type']:
@@ -279,9 +283,9 @@ def run_converter(target_date: datetime):
             total_rows   += rows
             total_errors += errs
             worker_files.append(path)
-            print(f"  worker {worker_id:02d} — {rows:,} lignes traitées")
+            print(f"  worker {worker_id:02d} — {rows:,} lignes traitées, {errs:,} ignorées (pas MMSI ou erreur de parsing)")
 
-    print(f"⏱️  Phase 1 (Parsing) terminée en {time.time()-start:.1f}s")
+    print(f"⏱️  Phase 1 (Parsing) terminée en {time.time()-start:.1f}s — {total_errors:,} lignes ignorées au total")
 
 # ── 3. Phase 2 : Consolidation Globale, Dédoublonnage et Tri SANS RAM (Via DuckDB Disque) ───
     print("💎 Phase 2 : Dédoublonnage et Indexation Parquet optimisés (Spill-to-Disk)...")
