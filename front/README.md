@@ -1,121 +1,60 @@
-# AIS Ship Visualizer
+# front_v2 — AIS Vessel Tracker
 
-Frontend WebGL performant pour visualiser les données AIS (Automatic Identification System) stockées dans DuckLake via duckdb-wasm.
+Application React + DuckDB WASM pour visualiser les positions AIS en temps réel via DuckLake.
 
-## Caractéristiques
+## DuckDB WASM : HTTP Range Requests
 
-- **16,69 millions de messages AIS** accessibles via DuckLake
-- **Visualisation WebGL** avec Three.js pour des performances optimales
-- **Dernière position par navire** (GROUP BY MMSI) pour réduire le nombre de points affichés
-- **Flèches de direction** basées sur le COG (Course Over Ground)
-- **Timeline** pour filtrer par plage horaire
-- **Recherche par MMSI/IMO**
-- **Infobulles** avec détails du navire au survol
-- **Zoom/Pan** avec OrbitControls
-- **Double-clic** pour zoomer sur un navire
+Les fichiers Parquet (113–298 Mo par jour) sont servis depuis OVH S3. DuckDB WASM utilise des **Range Requests** (requêtes partielles HTTP) pour ne télécharger que les row groups nécessaires à la requête.
 
-## Structure
+### Problème
 
-```
-front/
-├── index.html          # Point d'entrée
-├── package.json        # Dépendances
-├── vite.config.js      # Configuration Vite
-├── README.md           # Documentation
-├── public/             # Assets statiques
-└── src/
-    ├── main.js         # Logique principale
-    ├── duckdb.js       # Intégration DuckDB-WASM
-    ├── renderer.js     # Rendu Three.js
-    ├── ui.js           # Composants UI
-    └── style.css       # Styles
+OVH S3 répond mal au `HEAD` avec `Range: bytes=0-` — DuckDB croit que le serveur ne supporte pas les requêtes partielles et **télécharge le fichier entier** (113 Mo+).
+
+Avec la détection HEAD défaillante, `forceFullHTTPReads` par défaut à `true` force le full read.
+
+### CORS S3
+
+Le bucket S3 doit exposer les headers `Content-Range` et `Accept-Ranges` et autoriser le header `Range` pour que le navigateur accepte les réponses 206 Partial Content :
+
+```json
+{
+  "CORSRules": [{
+    "AllowedOrigins": ["*"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["Range"],
+    "ExposeHeaders": ["Content-Range", "Accept-Ranges", "Content-Length", "ETag"]
+  }]
+}
 ```
 
-## Prérequis
+(`infra/cors.json`)
 
-- Node.js v18+
-- npm ou yarn
+### Solution
 
-## Installation
+Dans `src/duckdb.ts:initDuckDB()`, avant `db.connect()` :
 
-```bash
-cd front
-npm install
+```typescript
+await db.open({
+  filesystem: {
+    allowFullHTTPReads: false,   // interdit le fallback full read
+    reliableHeadRequests: true,  // OVH S3 répond correctement au HEAD+Range
+    forceFullHTTPReads: false,   // crucial : défaut à true si absent
+  },
+});
 ```
 
-## Développement
+`forceFullHTTPReads` **doit** être passé explicitement à `false` — s'il est absent, il défaut à `true`, ce qui force le téléchargement complet même avec des Range Requests fonctionnelles.
 
-```bash
-npm run dev
-```
+### Résultat
 
-Ouvre http://localhost:3000 dans votre navigateur.
+| Avant | Après |
+|---|---|
+| 1 requête GET, 113 Mo | ~500 requêtes GET avec `Range: bytes=X-Y`, ~5 Mo |
 
-## Production
+Le nombre de requêtes et le volume exact dépendent de la fenêtre temporelle et du nombre de row groups Parquet lus.
 
-```bash
-npm run build
-npm run preview
-```
+## Pipeline aval
 
-## Utilisation
+L'ordre des données dans les fichiers Parquet est crucial : les row groups doivent être triés par `ts ASC, mmsi ASC` pour que DuckDB puisse les skipper via les statistiques min/max.
 
-1. **Timeline** : Sélectionnez une plage horaire (1h, 6h, 12h, 24h, 3j, 7j) ou entrez des dates manuellement
-2. **Recherche** : Entrez un MMSI ou IMO pour trouver un navire spécifique
-3. **Navigation** : 
-   - Gauche-clic + glisser : Déplacer la carte
-   - Molette : Zoomer
-   - Double-clic : Zoomer sur un navire
-4. **Raccourcis clavier** :
-   - `ESC` : Fermer l'infobulle
-   - `R` : Réinitialiser la vue
-   - `F` : Ajuster à toutes les données
-
-## Performances
-
-- **~500K-1M de points** affichés (dernières positions par navire)
-- **>60 FPS** sur la plupart des configurations
-- **InstancedMesh** pour les flèches de direction
-- **WebGL natif** via Three.js
-
-## Technologies
-
-- [Vite](https://vitejs.dev/) - Bundler
-- [Three.js](https://threejs.org/) - WebGL
-- [DuckDB-WASM](https://duckdb.org/docs/api/wasm) - Base de données dans le navigateur
-- [DuckLake](https://duckdb.org/docs/extensions/ducklake) - Extension DuckDB pour S3
-
-## Données
-
-Source : `https://ais-public-prod.s3.gra.io.cloud.ovh.net/ais.ducklake`
-
-Champs utilisés :
-- `mmsi` - Maritime Mobile Service Identity
-- `lat` / `lon` - Position géographique
-- `cog` - Course Over Ground (cap)
-- `sog` - Speed Over Ground (vitesse)
-- `name` - Nom du navire
-- `imo_number` - IMO number
-- `message_type` - Type de message AIS
-- `ts` - Timestamp
-
-## Optimisations
-
-1. **GROUP BY MMSI** : Une seule position par navire (la plus récente)
-2. **Requêtes filtrées** : Par plage horaire et zone géographique visible
-3. **InstancedMesh** : Rendu efficace des flèches
-4. **Lazy loading** : Chargement des données à la demande
-
-## Problèmes connus
-
-- Le chargement initial de DuckDB-WASM peut prendre quelques secondes
-- Les requêtes sur 16M de lignes peuvent être lentes sans filtres
-- La précision des positions dépend des données AIS
-
-## Auteur
-
-Arthur
-
-## License
-
-MIT
+Voir `publish_ducklake.py` — le `ORDER BY ts ASC, mmsi ASC` garantit que chaque row group couvre ~13 min de données, ce qui permet au filtre `ts BETWEEN` de ne lire que 1–2 row groups.
