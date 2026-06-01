@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Nettoyer les fichiers temporaires
+rm -f /tmp/consolidate_*.sql
+
 # Load environment variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../../.env"

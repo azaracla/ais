@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Nettoyer les fichiers temporaires avant de commencer
+rm -f /tmp/init_ducklake_*.sql /tmp/consolidate_*.sql /tmp/derive_*.sql /tmp/vessels_*.sql
+
 # Load environment variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../../.env"
