@@ -25,10 +25,7 @@ jobs:
 
       - name: Install DuckDB
         run: |
-          wget https://github.com/duckdb/duckdb/releases/download/v0.10.2/duckdb_cli-linux-amd64.zip
-          unzip duckdb_cli-linux-amd64.zip
-          chmod +x duckdb
-          sudo mv duckdb /usr/local/bin/duckdb
+          curl https://install.duckdb.org | sh
 
       - name: Create .env file
         run: |
