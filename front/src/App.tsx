@@ -6,6 +6,7 @@ import { queryVesselHistory, cancelQuery } from "./duckdb";
 import { useSatellite } from "./useSatellite";
 import { useDraw } from "./useDraw";
 import SatelliteControls from "./SatelliteControls";
+import ThreadBenchmark from "./ThreadBenchmark";
 import { vesselsToGeoJSON } from "./mockData";
 import type { Bounds, Sensor } from "./types";
 
@@ -60,6 +61,9 @@ export default function App() {
   const sceneAcqTsRef = useRef<number | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const trajectoryGenRef = useRef(0);
+
+  // Page mode: 'map' ou 'benchmark'
+  const [pageMode, setPageMode] = useState<'map' | 'benchmark'>('map');
 
   const [date, setDate] = useState(DEFAULT_DATE);
   const dateRef = useRef(date);
@@ -462,6 +466,27 @@ export default function App() {
           onScenesOnlyChange={setScenesOnly}
         />
 
+        <button
+          onClick={() => setPageMode(pageMode === 'map' ? 'benchmark' : 'map')}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 8,
+            border: "none",
+            background: "rgba(255,255,255,0.95)",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            font: "13px system-ui",
+            fontWeight: 600,
+            cursor: "pointer",
+            color: pageMode === 'benchmark' ? "#6366f1" : "#333",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+          title={pageMode === 'benchmark' ? "Back to Map" : "Open Performance Benchmark"}
+        >
+          {pageMode === 'benchmark' ? '← Map' : '⚡ Benchmark'}
+        </button>
+
         {!ready && (
           <div style={{
             background: "rgba(255,255,255,0.95)", padding: "8px 14px",
@@ -506,29 +531,34 @@ export default function App() {
       )}
 
       {/* Legend */}
-      <div style={{
-        position: "absolute", bottom: 28, right: 12,
-        background: "rgba(255,255,255,0.95)", padding: "10px 14px",
-        borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-        font: "12px system-ui", lineHeight: "20px",
-      }}>
-        <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 13 }}>Vessel Types</div>
-        {VESSEL_META.map((m) => (
-          <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{
-              width: 0, height: 0,
-              borderLeft: "5px solid transparent",
-              borderRight: "5px solid transparent",
-              borderBottom: `8px solid ${m.color}`,
-              display: "inline-block",
-            }} />
-            {m.label}
+      {pageMode === 'map' && (
+        <div style={{
+          position: "absolute", bottom: 28, right: 12,
+          background: "rgba(255,255,255,0.95)", padding: "10px 14px",
+          borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+          font: "12px system-ui", lineHeight: "20px",
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 13 }}>Vessel Types</div>
+          {VESSEL_META.map((m) => (
+            <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{
+                width: 0, height: 0,
+                borderLeft: "5px solid transparent",
+                borderRight: "5px solid transparent",
+                borderBottom: `8px solid ${m.color}`,
+                display: "inline-block",
+              }} />
+              {m.label}
+            </div>
+          ))}
+          <div style={{ marginTop: 6, color: "#888", fontSize: 11 }}>
+            {vessels.length.toLocaleString()} vessels
           </div>
-        ))}
-        <div style={{ marginTop: 6, color: "#888", fontSize: 11 }}>
-          {vessels.length.toLocaleString()} vessels
         </div>
-      </div>
+      )}
+
+      {/* Benchmark mode */}
+      {pageMode === 'benchmark' && <ThreadBenchmark />}
     </div>
   );
 }
