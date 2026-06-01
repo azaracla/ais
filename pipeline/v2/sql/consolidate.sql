@@ -8,11 +8,11 @@
 INSERT INTO ais_lake.messages
 SELECT 
     message_type,
-    -- MMSI: try multiple variants, cast each to BIGINT
+    -- MMSI from metadata STRUCT or message MAP
     COALESCE(
         (NULLIF(metadata->>'MMSI', 'MMSI'))::BIGINT,
         (NULLIF(metadata->>'mmsi', 'mmsi'))::BIGINT,
-        (message->>'MMSI')::BIGINT
+        (message[message_type]['UserID'])::BIGINT
     ) AS mmsi,
     -- Timestamp: handle format "YYYY-MM-DD HH:MM:SS.us +0000 UTC"
     CASE 
@@ -25,7 +25,7 @@ SELECT
             (metadata->>'timestamp')::TIMESTAMPTZ
         )
     END AS ts,
-    -- Coordinates
+    -- Coordinates from metadata STRUCT
     COALESCE(
         (metadata->>'latitude')::DOUBLE,
         (metadata->>'lat')::DOUBLE
@@ -34,12 +34,9 @@ SELECT
         (metadata->>'longitude')::DOUBLE,
         (metadata->>'lon')::DOUBLE
     ) AS lon,
-    -- Received at
-    COALESCE(
-        (metadata->>'received_at')::TIMESTAMPTZ,
-        received_at::TIMESTAMPTZ
-    ) AS received_at,
-    COALESCE(metadata->>'listener_id', listener_id) AS source_listener,
+    -- Received at (top-level NDJSON column)
+    received_at::TIMESTAMPTZ AS received_at,
+    listener_id AS source_listener,
     -- Dynamic fields (from MAP keyed by message_type)
     (message[message_type]['Sog']::DOUBLE) AS sog,
     (message[message_type]['Cog']::DOUBLE) AS cog,
@@ -50,11 +47,11 @@ SELECT
     (message[message_type]['PositionAccuracy']::BOOLEAN) AS position_accuracy,
     (message[message_type]['Raim']::BOOLEAN) AS raim,
     (message[message_type]['Valid']::BOOLEAN) AS valid,
-    -- Static data
+    -- Static data (from MAP; metadata only has ShipName as fallback)
     COALESCE(message[message_type]['Name']::VARCHAR, metadata.ShipName::VARCHAR) AS name,
-    COALESCE(message[message_type]['CallSign']::VARCHAR, metadata.CallSign::VARCHAR) AS call_sign,
-    COALESCE((message[message_type]['ImoNumber'])::BIGINT, metadata.ImoNumber::BIGINT) AS imo_number,
-    COALESCE((message[message_type]['Type'])::INTEGER) AS ship_type,
+    (message[message_type]['CallSign']::VARCHAR) AS call_sign,
+    (message[message_type]['ImoNumber']::BIGINT) AS imo_number,
+    (message[message_type]['Type']::INTEGER) AS ship_type,
     (message[message_type]['AisVersion']::INTEGER) AS ais_version,
     -- Dimensions
     (COALESCE((message[message_type]['Dimension']['A'])::DOUBLE, 0) + COALESCE((message[message_type]['Dimension']['B'])::DOUBLE, 0)) AS length,
@@ -65,10 +62,10 @@ SELECT
     (message[message_type]['Dimension']['D'])::DOUBLE AS dimension_d,
     (message[message_type]['MaximumStaticDraught'])::DOUBLE AS max_static_draught,
     -- Destination and ETA
-    COALESCE(message[message_type]['Destination']::VARCHAR, metadata.Destination::VARCHAR) AS destination,
-    (message[message_type]['Eta']::TIMESTAMPTZ) AS eta,
+    (message[message_type]['Destination']::VARCHAR) AS destination,
+    NULL::TIMESTAMPTZ AS eta,
     (message[message_type]['Dte']::BOOLEAN) AS dte,
-    COALESCE((message[message_type]['FixType'])::INTEGER) AS fix_type,
+    (message[message_type]['FixType']::INTEGER) AS fix_type,
     -- AtoN specific
     CASE WHEN message_type = 'AidsToNavigationReport' THEN 
         (message[message_type]['Type'])::INTEGER
