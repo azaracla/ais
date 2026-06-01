@@ -26,6 +26,7 @@ jobs:
       - name: Install DuckDB
         run: |
           curl https://install.duckdb.org | sh
+          echo "$HOME/.duckdb/cli/latest" >> $GITHUB_PATH
 
       - name: Create .env file
         run: |
