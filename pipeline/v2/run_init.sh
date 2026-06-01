@@ -43,7 +43,7 @@ SET s3_use_ssl=true;
 
 ATTACH '${LOCAL_CATALOG}' AS ais_lake (
     TYPE ducklake,
-    DATA_PATH 's3://${BUCKET_PUBLIC}/v2/ais.ducklake.files/',
+    DATA_PATH 'https://${BUCKET_PUBLIC}.s3.gra.io.cloud.ovh.net/v2/ais.ducklake.files/',
     OVERRIDE_DATA_PATH true
 );
 
