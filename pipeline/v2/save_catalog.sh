@@ -28,6 +28,13 @@ aws s3api put-object-acl --bucket "${BUCKET_PUBLIC}" --key "v2/ais.ducklake" --a
     echo "⚠️  Failed to set public-read ACL. Manual command: aws --endpoint-url=${OVH_ENDPOINT} --region ${OVH_REGION} s3api put-object-acl --bucket ${BUCKET_PUBLIC} --key v2/ais.ducklake --acl public-read"
 
 echo "✅ Catalog saved to S3 with public-read ACL"
+
+# Set public-read ACL on data files (parquet) for direct HTTP access from DuckDB-WASM
+echo "📁 Setting public-read ACL on data files..."
+aws s3api list-objects --bucket "${BUCKET_PUBLIC}" --prefix "v2/ais.ducklake.files/" \
+    --query "Contents[].Key" --output text 2>/dev/null | tr '\t' '\n' | \
+    xargs -I{} aws s3api put-object-acl --bucket "${BUCKET_PUBLIC}" --key "{}" --acl public-read 2>&1 || \
+    echo "⚠️  Failed to set public-read ACL on some data files"
 echo ""
 echo "Direct public access URL: ducklake:https://${BUCKET_PUBLIC}.s3.gra.io.cloud.ovh.net/v2/ais.ducklake"
 echo ""

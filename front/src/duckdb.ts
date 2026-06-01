@@ -36,6 +36,12 @@ export async function initDuckDB(): Promise<void> {
         allowFullHTTPReads: false,
         reliableHeadRequests: true,
         forceFullHTTPReads: false,
+        s3: {
+          region: "gra",
+          endpoint: "s3.gra.io.cloud.ovh.net",
+          useSSL: true,
+          urlStyle: "path"
+        }
       },
     });
 
@@ -43,7 +49,7 @@ export async function initDuckDB(): Promise<void> {
 
     await conn.query("SET enable_object_cache=true;");
     await conn.query(
-      "ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/ais.ducklake' AS ais (TYPE ducklake)"
+      "ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v2/ais.ducklake' AS ais (TYPE ducklake, DATA_PATH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v2/ais.ducklake.files/', OVERRIDE_DATA_PATH true)"
     );
     const r = await conn.query("SELECT COUNT(*) as cnt FROM ais.vessels_positions LIMIT 1;");
     const cnt = r.toArray()[0]?.cnt ?? 0;
