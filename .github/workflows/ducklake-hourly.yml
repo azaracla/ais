@@ -1,0 +1,72 @@
+name: DuckLake v2 Hourly Pipeline
+
+on:
+  schedule:
+    - cron: '30 * * * *'  # Run every hour at minute 30
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to process (YYYY-MM-DD)'
+        required: false
+        default: ''
+      hour:
+        description: 'Hour to process (00-23)'
+        required: false
+        default: ''
+
+jobs:
+  process-hour:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install DuckDB
+        run: |
+          wget https://github.com/duckdb/duckdb/releases/download/v0.10.2/duckdb_cli-linux-amd64.zip
+          unzip duckdb_cli-linux-amd64.zip
+          chmod +x duckdb
+          sudo mv duckdb /usr/local/bin/duckdb
+
+      - name: Install AWS CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y awscli
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          OVH_REGION=${{ secrets.OVH_REGION }}
+          OVH_ENDPOINT=${{ secrets.OVH_ENDPOINT }}
+          OVH_ACCESS_KEY=${{ secrets.OVH_ACCESS_KEY }}
+          OVH_SECRET_KEY=${{ secrets.OVH_SECRET_KEY }}
+          BUCKET_RAW=${{ secrets.BUCKET_RAW }}
+          BUCKET_PUBLIC=${{ secrets.BUCKET_PUBLIC }}
+          EOF
+
+      - name: Process previous hour
+        run: |
+          # Determine date and hour to process
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            TARGET_DATE="${{ github.event.inputs.date }}"
+          else
+            # Process previous hour (hourly schedule)
+            TARGET_DATE=$(date -u -d "1 hour ago" +%Y-%m-%d)
+          fi
+          
+          if [ -n "${{ github.event.inputs.hour }}" ]; then
+            TARGET_HOUR="${{ github.event.inputs.hour }}"
+          else
+            TARGET_HOUR=$(date -u -d "1 hour ago" +%H)
+          fi
+          
+          echo "Processing: ${TARGET_DATE} ${TARGET_HOUR}:00"
+          
+          # Run pipeline for this hour
+          cd pipeline/v2
+          ./run_full_pipeline.sh "${TARGET_DATE}" "${TARGET_HOUR}"
+          
+          # Save catalog to S3 with public ACL
+          ./save_catalog.sh
