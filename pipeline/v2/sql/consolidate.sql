@@ -40,50 +40,41 @@ SELECT
         received_at::TIMESTAMPTZ
     ) AS received_at,
     COALESCE(metadata->>'listener_id', listener_id) AS source_listener,
-    -- Dynamic fields
-    COALESCE((message->>'Sog')::DOUBLE, (metadata->>'sog')::DOUBLE) AS sog,
-    COALESCE((message->>'Cog')::DOUBLE, (metadata->>'cog')::DOUBLE) AS cog,
-    COALESCE((message->>'TrueHeading')::INTEGER, (message->>'trueHeading')::INTEGER) AS true_heading,
-    COALESCE((message->>'NavigationalStatus')::INTEGER, (message->>'navigationalStatus')::INTEGER) AS navigational_status,
-    COALESCE((message->>'RateOfTurn')::INTEGER, (message->>'rateOfTurn')::INTEGER) AS rate_of_turn,
-    COALESCE((message->>'MessageID')::INTEGER, (message->>'messageId')::INTEGER) AS message_id,
-    COALESCE((message->>'PositionAccuracy')::BOOLEAN, (message->>'positionAccuracy')::BOOLEAN) AS position_accuracy,
-    COALESCE((message->>'Raim')::BOOLEAN, (message->>'raim')::BOOLEAN) AS raim,
-    COALESCE((message->>'Valid')::BOOLEAN, (message->>'valid')::BOOLEAN) AS valid,
+    -- Dynamic fields (from MAP keyed by message_type)
+    (message[message_type]['Sog']::DOUBLE) AS sog,
+    (message[message_type]['Cog']::DOUBLE) AS cog,
+    (message[message_type]['TrueHeading']::INTEGER) AS true_heading,
+    (message[message_type]['NavigationalStatus']::INTEGER) AS navigational_status,
+    (message[message_type]['RateOfTurn']::INTEGER) AS rate_of_turn,
+    (message[message_type]['MessageID']::INTEGER) AS message_id,
+    (message[message_type]['PositionAccuracy']::BOOLEAN) AS position_accuracy,
+    (message[message_type]['Raim']::BOOLEAN) AS raim,
+    (message[message_type]['Valid']::BOOLEAN) AS valid,
     -- Static data
-    COALESCE(message->>'Name', metadata->>'name') AS name,
-    COALESCE(message->>'CallSign', metadata->>'callSign') AS call_sign,
-    COALESCE((message->>'ImoNumber')::BIGINT, (metadata->>'imoNumber')::BIGINT) AS imo_number,
-    COALESCE((message->>'Type')::INTEGER, (message->>'shipType')::INTEGER) AS ship_type,
-    (message->>'AisVersion')::INTEGER AS ais_version,
+    COALESCE(message[message_type]['Name']::VARCHAR, metadata.ShipName::VARCHAR) AS name,
+    COALESCE(message[message_type]['CallSign']::VARCHAR, metadata.CallSign::VARCHAR) AS call_sign,
+    COALESCE((message[message_type]['ImoNumber'])::BIGINT, metadata.ImoNumber::BIGINT) AS imo_number,
+    COALESCE((message[message_type]['Type'])::INTEGER) AS ship_type,
+    (message[message_type]['AisVersion']::INTEGER) AS ais_version,
     -- Dimensions
-    (COALESCE((message->'Dimension'->>'A')::DOUBLE, 0) + COALESCE((message->'Dimension'->>'B')::DOUBLE, 0)) AS length,
-    (COALESCE((message->'Dimension'->>'C')::DOUBLE, 0) + COALESCE((message->'Dimension'->>'D')::DOUBLE, 0)) AS width,
-    (message->'Dimension'->>'A')::DOUBLE AS dimension_a,
-    (message->'Dimension'->>'B')::DOUBLE AS dimension_b,
-    (message->'Dimension'->>'C')::DOUBLE AS dimension_c,
-    (message->'Dimension'->>'D')::DOUBLE AS dimension_d,
-    (message->>'MaximumStaticDraught')::DOUBLE AS max_static_draught,
+    (COALESCE((message[message_type]['Dimension']['A'])::DOUBLE, 0) + COALESCE((message[message_type]['Dimension']['B'])::DOUBLE, 0)) AS length,
+    (COALESCE((message[message_type]['Dimension']['C'])::DOUBLE, 0) + COALESCE((message[message_type]['Dimension']['D'])::DOUBLE, 0)) AS width,
+    (message[message_type]['Dimension']['A'])::DOUBLE AS dimension_a,
+    (message[message_type]['Dimension']['B'])::DOUBLE AS dimension_b,
+    (message[message_type]['Dimension']['C'])::DOUBLE AS dimension_c,
+    (message[message_type]['Dimension']['D'])::DOUBLE AS dimension_d,
+    (message[message_type]['MaximumStaticDraught'])::DOUBLE AS max_static_draught,
     -- Destination and ETA
-    COALESCE(message->>'Destination', metadata->>'destination') AS destination,
-    CASE 
-        WHEN message->>'Eta' IS NOT NULL THEN 
-            CASE 
-                WHEN message->>'Eta' ~ '^\\d{4}-\\d{2}-\\d{2}' THEN (message->>'Eta')::TIMESTAMPTZ
-                WHEN message->>'Eta' ~ '^\\d{2}/\\d{2}/\\d{4}' THEN strptime(message->>'Eta', '%d/%m/%Y')
-                WHEN message->>'Eta' ~ '^\\d+$' THEN to_timestamp((message->>'Eta')::BIGINT)
-                ELSE NULL 
-            END
-        ELSE NULL 
-    END AS eta,
-    (message->>'Dte')::BOOLEAN AS dte,
-    COALESCE((message->>'FixType')::INTEGER, (message->>'fixType')::INTEGER) AS fix_type,
+    COALESCE(message[message_type]['Destination']::VARCHAR, metadata.Destination::VARCHAR) AS destination,
+    (message[message_type]['Eta']::TIMESTAMPTZ) AS eta,
+    (message[message_type]['Dte']::BOOLEAN) AS dte,
+    COALESCE((message[message_type]['FixType'])::INTEGER) AS fix_type,
     -- AtoN specific
     CASE WHEN message_type = 'AidsToNavigationReport' THEN 
-        COALESCE((message->>'Type')::INTEGER, (message->>'typeOfAton')::INTEGER) 
+        (message[message_type]['Type'])::INTEGER
     ELSE NULL END AS type_of_aton,
-    (message->>'OffPosition')::BOOLEAN AS off_position,
-    (message->>'VirtualAtoN')::BOOLEAN AS virtual_aton,
+    (message[message_type]['OffPosition']::BOOLEAN) AS off_position,
+    (message[message_type]['VirtualAtoN']::BOOLEAN) AS virtual_aton,
     -- Raw data (placeholder)
     NULL::VARCHAR AS raw_message,
     NULL::VARCHAR AS metadata_json
