@@ -1,0 +1,75 @@
+name: DuckLake v3 Daily Pipeline
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # 3h UTC = ~5h Paris été / ~4h Paris hiver
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date à traiter (YYYY-MM-DD), défaut = veille'
+        required: false
+        default: ''
+      force:
+        description: 'Force re-traitement (supprime partitions existantes)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  process-day:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install DuckDB CLI
+        run: |
+          curl https://install.duckdb.org | sh
+          echo "$HOME/.duckdb/cli/latest" >> $GITHUB_PATH
+
+      - name: Set environment
+        run: |
+          cat >> .env << EOF
+          OVH_REGION=${{ secrets.OVH_REGION }}
+          OVH_ENDPOINT=${{ secrets.OVH_ENDPOINT }}
+          OVH_ACCESS_KEY=${{ secrets.OVH_ACCESS_KEY }}
+          OVH_SECRET_KEY=${{ secrets.OVH_SECRET_KEY }}
+          BUCKET_RAW=${{ secrets.BUCKET_RAW }}
+          BUCKET_PUBLIC=${{ secrets.BUCKET_PUBLIC }}
+          EOF
+
+      - name: Run v3 pipeline
+        env:
+          OVH_REGION: ${{ secrets.OVH_REGION }}
+          OVH_ENDPOINT: ${{ secrets.OVH_ENDPOINT }}
+          OVH_ACCESS_KEY: ${{ secrets.OVH_ACCESS_KEY }}
+          OVH_SECRET_KEY: ${{ secrets.OVH_SECRET_KEY }}
+          BUCKET_RAW: ${{ secrets.BUCKET_RAW }}
+          BUCKET_PUBLIC: ${{ secrets.BUCKET_PUBLIC }}
+        run: |
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            TARGET_DATE="${{ github.event.inputs.date }}"
+          else
+            TARGET_DATE=$(date -u -d "1 day ago" +%Y-%m-%d)
+          fi
+          echo "📅 Date cible : ${TARGET_DATE}"
+          echo "🌐 S3 endpoint : ${OVH_ENDPOINT}"
+
+          CMD="python pipeline/v3/pipeline.py --date ${TARGET_DATE}"
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            CMD="${CMD} --force"
+            echo "⚠️  Mode --force activé"
+          fi
+
+          echo "🚀 Exécution : ${CMD}"
+          ${CMD}
