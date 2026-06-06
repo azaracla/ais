@@ -9,6 +9,8 @@
 --   :aids_to_navigation_path  — e.g. gold/aids_to_navigation/year=2026/month=06/day=05/aids_to_navigation.parquet
 
 -- 1. vessels_positions — all position message types
+-- Sorted by ts (temporal) because frontend query always filters by 10-min time
+-- window first. ts sort gives 1-RG prune vs spatial sort scanning all RGs in bbox.
 COPY (
     SELECT
         message_type, mmsi, ts, lat, lon, received_at, source_listener,
