@@ -8,16 +8,15 @@ Architecture (CI-safe, no historical data needed locally):
   3. DERIVE     — DuckDB local: read silver.parquet → COPY TO 4 gold tables
   4. UPLOAD     — ThreadPoolExecutor: Parquet locaux → S3 public-read
   5. CATALOG    — DuckLake (S3 DATA_PATH):
-      a. ducklake_add_data_files pour chaque fichier (silver + gold)
-      b. DELETE + INSERT vessels (upsert MMSIs du jour, lit/écrit S3 via DuckLake)
-      c. Upload catalogue → S3
+      a. ducklake_add_data_files pour chaque fichier (silver + gold + vessels)
+      b. Upload catalogue → S3
 
 Pourquoi pas DuckLake partout ?
   - Les gros INSERT (consolidation, dérivation) écrivent des centaines de MB.
     Avec DATA_PATH=S3, chaque écriture traverse le réseau → lent.
     Avec COPY TO local → rapide, puis upload parallèle en une fois.
   - Le catalogue gère le partitionnement, le nommage, et la résolution des URLs.
-  - vessels est une petite table (qq MB), DuckLake sur S3 est acceptable.
+  - Tous les fichiers (y compris vessels) passent par le même pipeline local+upload.
 
 Usage:
   python pipeline/v3/pipeline.py --date YYYY-MM-DD
@@ -41,13 +40,20 @@ from configuration import *
 # ── Paths ──────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SQL_DIR = os.path.join(SCRIPT_DIR, 'sql')
-WORK_DIR = os.path.join(SCRIPT_DIR, 'work')            # raw NDJSON.zst downloads
-OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'output')         # generated Parquet files
+WORK_BASE_DIR = os.path.join(SCRIPT_DIR, 'work')          # raw NDJSON.zst downloads (per-date subdirs)
+OUTPUT_BASE_DIR = os.path.join(SCRIPT_DIR, 'output')       # generated Parquet files (per-date subdirs)
 CATALOG_DIR = os.path.join(SCRIPT_DIR, 'catalog')
 CATALOG_FILE = os.path.join(CATALOG_DIR, 'ais.ducklake')
 
-S3_CATALOG_KEY = "v2/ais.ducklake"
-S3_DATA_PREFIX = "v2/ais.ducklake.files"
+S3_CATALOG_KEY = "v3/ais.ducklake"
+S3_DATA_PREFIX = "v3/ais.ducklake.files"
+
+
+def work_dir(date: datetime) -> str:
+    return os.path.join(WORK_BASE_DIR, date.strftime('%Y-%m-%d'))
+
+def output_dir(date: datetime) -> str:
+    return os.path.join(OUTPUT_BASE_DIR, date.strftime('%Y-%m-%d'))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -133,25 +139,26 @@ def download_files(s3, keys: list[str], dest_dir: str,
 # PHASE 2-3: LOCAL TRANSFORM (no DuckLake, pure DuckDB)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def local_transform(target_date: datetime) -> dict:
+def local_transform(target_date: datetime, work_dir_path: str,
+                     output_dir_path: str) -> dict:
     """
     Consolidate + Derive locally. No DuckLake, no S3 — pure local DuckDB.
     Returns stats + paths of generated files.
     """
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(output_dir_path, exist_ok=True)
 
     silver_dir = os.path.join(
-        OUTPUT_DIR,
+        output_dir_path,
         f"silver/year={target_date.year}"
         f"/month={target_date.month:02d}"
         f"/day={target_date.day:02d}",
     )
-    gold_dir = os.path.join(OUTPUT_DIR, "gold")
+    gold_dir = os.path.join(output_dir_path, "gold")
     os.makedirs(silver_dir, exist_ok=True)
     os.makedirs(gold_dir, exist_ok=True)
 
     silver_file = os.path.join(silver_dir, "messages_consolidated.parquet")
-    raw_glob = os.path.join(WORK_DIR, "*.ndjson.zst")
+    raw_glob = os.path.join(work_dir_path, "*.ndjson.zst")
 
     con = duckdb.connect()
     stats = {}
@@ -159,7 +166,7 @@ def local_transform(target_date: datetime) -> dict:
 
     try:
         # ── Consolidate ────────────────────────────────────────────────────
-        n_raw = len([f for f in os.listdir(WORK_DIR) if f.endswith('.ndjson.zst')])
+        n_raw = len([f for f in os.listdir(work_dir_path) if f.endswith('.ndjson.zst')])
         print(f"   📦 Consolidation: {n_raw} fichiers NDJSON → Parquet...")
         run_sql(con, load_sql('01_consolidate.sql'), {
             'raw_path': raw_glob,
@@ -216,6 +223,21 @@ def local_transform(target_date: datetime) -> dict:
                 stats[table] = 0
         print(f"   ✅ Gold ({time.time()-t1:.1f}s): "
               + ', '.join(f'{k}={v:,}' for k, v in stats.items() if k != 'messages'))
+
+        # ── Vessels ───────────────────────────────────────────────────────
+        print("   🚢 Vessels...")
+        t2 = time.time()
+        vessels_dir = os.path.join(gold_dir, 'vessels')
+        os.makedirs(vessels_dir, exist_ok=True)
+        vessels_file = os.path.join(vessels_dir, 'vessels.parquet')
+        run_sql(con, load_sql('03_vessels.sql'), {
+            'silver_path': silver_file,
+            'output_path': vessels_file,
+        })
+        stats['vessels'] = con.execute(
+            f"SELECT COUNT(*) FROM read_parquet('{vessels_file}')"
+        ).fetchone()[0]
+        print(f"   ✅ vessels: {stats['vessels']:,} navires ({time.time()-t2:.1f}s)")
     finally:
         con.close()
 
@@ -226,18 +248,19 @@ def local_transform(target_date: datetime) -> dict:
 # PHASE 4: UPLOAD PARQUET FILES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def upload_output_files(s3, max_workers: int = 32) -> list[tuple[str, str]]:
+def upload_output_files(s3, output_dir_path: str,
+                       max_workers: int = 32) -> list[tuple[str, str]]:
     """
     Upload all generated Parquet files to S3.
     Returns list of (local_path, s3_url) for catalog registration.
     """
     all_uploads = []
-    for root, _, filenames in os.walk(OUTPUT_DIR):
+    for root, _, filenames in os.walk(output_dir_path):
         for f in filenames:
             if not f.endswith('.parquet'):
                 continue
             local_path = os.path.join(root, f)
-            rel = os.path.relpath(local_path, OUTPUT_DIR)
+            rel = os.path.relpath(local_path, output_dir_path)
             s3_key = f"{S3_DATA_PREFIX}/{rel}"
             all_uploads.append((local_path, s3_key))
 
@@ -280,7 +303,8 @@ def upload_output_files(s3, max_workers: int = 32) -> list[tuple[str, str]]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def update_catalog(s3, uploaded_files: list[tuple[str, str]],
-                   target_date: datetime, force: bool):
+                   target_date: datetime, force: bool,
+                   output_dir_path: str = ''):
     """
     Download catalog, register new files, upsert vessels, upload catalog.
     Uses DuckLake with S3 DATA_PATH — small operations, latency acceptable.
@@ -358,7 +382,7 @@ def update_catalog(s3, uploaded_files: list[tuple[str, str]],
         }
 
         # Map local path → (table_name, hive_partitioning)
-        file_registry = _classify_files(uploaded_files)
+        file_registry = _classify_files(uploaded_files, output_dir_path)
 
         for local_path, url in uploaded_files:
             if url in known and not force:
@@ -377,25 +401,6 @@ def update_catalog(s3, uploaded_files: list[tuple[str, str]],
             )
             print(f"   📋 {table_name}: {url}")
 
-        # ── Vessels upsert ──────────────────────────────────────────────
-        silver_file = os.path.join(
-            OUTPUT_DIR,
-            f"silver/year={target_date.year}"
-            f"/month={target_date.month:02d}"
-            f"/day={target_date.day:02d}",
-            "messages_consolidated.parquet",
-        )
-        if os.path.exists(silver_file):
-            print("   🚢 Upsert vessels...")
-            t0 = time.time()
-            run_sql(con, load_sql('03_vessels.sql'), {
-                'silver_path': silver_file,
-            })
-            count = con.execute(
-                "SELECT COUNT(*) FROM ais_lake.vessels"
-            ).fetchone()[0]
-            print(f"   ✅ vessels: {count:,} navires ({time.time()-t0:.1f}s)")
-
     finally:
         con.close()
 
@@ -405,7 +410,8 @@ def update_catalog(s3, uploaded_files: list[tuple[str, str]],
     print(f"   ✅ Catalogue publié → {base_https}/{S3_CATALOG_KEY}")
 
 
-def _classify_files(uploaded_files: list[tuple[str, str]]) -> dict:
+def _classify_files(uploaded_files: list[tuple[str, str]],
+                    output_dir_path: str) -> dict:
     """Map local_path → (table_name, hive_partitioning).
     Silver (messages): Hive path silver/year=.../month=.../day=.../ → hive=true.
     Gold tables: also Hive paths → hive=true.
@@ -413,7 +419,7 @@ def _classify_files(uploaded_files: list[tuple[str, str]]) -> dict:
     """
     mapping = {}
     for local_path, _ in uploaded_files:
-        rel = os.path.relpath(local_path, OUTPUT_DIR)
+        rel = os.path.relpath(local_path, output_dir_path)
         if rel.startswith('silver/'):
             mapping[local_path] = ('messages', True)
         elif rel.startswith('gold/vessels_positions/'):
@@ -424,6 +430,8 @@ def _classify_files(uploaded_files: list[tuple[str, str]]) -> dict:
             mapping[local_path] = ('base_stations', True)
         elif rel.startswith('gold/aids_to_navigation/'):
             mapping[local_path] = ('aids_to_navigation', True)
+        elif rel.startswith('gold/vessels/'):
+            mapping[local_path] = ('vessels', False)
     return mapping
 
 
@@ -555,6 +563,9 @@ def process_date(target_date: datetime, force: bool = False, no_download: bool =
 
     s3 = s3_client()
 
+    wd = work_dir(target_date)
+    od = output_dir(target_date)
+
     # 1. List raw files
     keys = list_raw_files(s3, target_date)
     print(f"🔍 {len(keys)} fichiers raw trouvés")
@@ -562,23 +573,24 @@ def process_date(target_date: datetime, force: bool = False, no_download: bool =
         print("⚠️ Aucune donnée pour cette date.")
         return
 
-    # Cache check: if WORK_DIR already has all the files, skip download
-    os.makedirs(WORK_DIR, exist_ok=True)
-    existing = [f for f in os.listdir(WORK_DIR) if f.endswith('.ndjson.zst')]
-    if no_download or len(existing) >= len(keys) * 0.99:
+    # Cache check: per-date work dir, exact file count match
+    os.makedirs(wd, exist_ok=True)
+    existing = [f for f in os.listdir(wd) if f.endswith('.ndjson.zst')]
+    expected = len(keys)
+    if no_download or len(existing) == expected:
         if no_download:
-            print(f"📂 --no-download: {len(existing)} fichiers dans {WORK_DIR}, skip")
+            print(f"📂 --no-download: {len(existing)} fichiers dans {wd}, skip")
         else:
-            print(f"📂 Cache: {len(existing)}/{len(keys)} fichiers déjà là, skip download")
+            print(f"📂 Cache: {len(existing)}/{expected} fichiers déjà là, skip download")
         downloaded, failed = len(existing), 0
     else:
-        # Clean stale files (partial previous download)
+        # Clean stale files (wrong date or partial download)
         for f in existing:
-            os.remove(os.path.join(WORK_DIR, f))
+            os.remove(os.path.join(wd, f))
 
         t0 = time.time()
-        print(f"📥 Download {len(keys)} fichiers NDJSON.zst...")
-        downloaded, failed = download_files(s3, keys, WORK_DIR)
+        print(f"📥 Download {expected} fichiers NDJSON.zst → {wd}...")
+        downloaded, failed = download_files(s3, keys, wd)
         print(f"   ✅ {downloaded} ok, {failed} fail ({time.time()-t0:.1f}s)")
 
     if downloaded == 0:
@@ -587,21 +599,21 @@ def process_date(target_date: datetime, force: bool = False, no_download: bool =
 
     # 2-3. Local transform (consolidate + derive)
     t_start = time.time()
-    stats = local_transform(target_date)
+    stats = local_transform(target_date, wd, od)
     print(f"   ⏱️  Transform locale: {time.time()-t_start:.1f}s")
 
     # 4. Upload Parquet files
     t2 = time.time()
-    uploaded_files = upload_output_files(s3)
+    uploaded_files = upload_output_files(s3, od)
     print(f"   ⏱️  Upload: {time.time()-t2:.1f}s")
 
     # 5. Update catalog + upsert vessels
     t3 = time.time()
-    update_catalog(s3, uploaded_files, target_date, force)
+    update_catalog(s3, uploaded_files, target_date, force, od)
     print(f"   ⏱️  Catalogue: {time.time()-t3:.1f}s")
 
-    # Cleanup (keep WORK_DIR for caching across runs)
-    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    # Cleanup output (keep work dir for caching)
+    shutil.rmtree(od, ignore_errors=True)
 
     print(f"\n✅ {ts} terminé en {time.time()-t_start:.1f}s")
     print(f"   messages:           {stats.get('messages', '?'):,}")
