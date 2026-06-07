@@ -140,7 +140,7 @@ body {
 /* ── Top Bar ───────────────────────────── */
 .top-bar {
   position: absolute;
-  top: 12px;
+  top: 42px;
   left: 12px;
   right: 12px;
   display: flex;
@@ -373,10 +373,7 @@ select.input-text { cursor: pointer; max-width: 200px; }
 }
 
 /* ── Scale Control ─────────────────────── */
-.maplibregl-ctrl-scale {
-  z-index: 20 !important;
-  margin-bottom: 50px !important;
-}
+.maplibregl-ctrl-scale { }
 
 /* ── Popup Overrides ───────────────────── */
 .maplibregl-popup-content {
@@ -1058,7 +1055,7 @@ select.input-text { cursor: pointer; max-width: 200px; }
   }
 
   .top-bar {
-    top: 6px;
+    top: 34px;
     left: 6px;
     right: 6px;
     gap: 4px;
@@ -1189,8 +1186,6 @@ select.input-text { cursor: pointer; max-width: 200px; }
   .timeline-reset-btn { padding: 4px 10px; font-size: 12px; }
   .timeline-spinner-wrap { width: 14px; }
   .tl-live-dot { width: 6px; height: 6px; }
-
-  .maplibregl-ctrl-scale { margin-bottom: 75px !important; }
 }
 
 /* ── Small Phones ───────────────────────── */
@@ -1207,7 +1202,7 @@ select.input-text { cursor: pointer; max-width: 200px; }
   }
 
   .top-bar {
-    top: 4px;
+    top: 30px;
     left: 4px;
     right: 4px;
   }
@@ -1237,8 +1232,6 @@ select.input-text { cursor: pointer; max-width: 200px; }
   .sidebar-toggle { top: 44px; left: 4px; width: 26px; height: 26px; }
   .theme-toggle { width: 28px; height: 28px; font-size: 14px; }
   .legend-toggle { width: 28px; height: 28px; top: -4px; right: 4px; transform: translateY(-100%); }
-
-  .maplibregl-ctrl-scale { margin-bottom: 100px !important; }
 }
 
 /* ── Timeline Bar ─────────────────────── */
