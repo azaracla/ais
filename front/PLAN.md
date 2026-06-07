@@ -9,11 +9,12 @@
 - [x] Hover tooltip on vessel icons
 - [x] Map layer filtering by category
 
-## Phase 2 : Filters & Layer Controls (P0)
-- [ ] Speed range slider
-- [ ] Navigation status filter (underway / anchored / moored)
+## Phase 2 : Filters & Layer Controls ✅
+- [x] Speed range slider (dual range, client-side filtering)
+- [x] Vessel name labels toggle on map
+- [x] Navigation status filter (underway / anchored / moored)
 - [ ] Vessel density heatmap at low zoom levels
-- [ ] Toggle vessel name labels on map
+- [x] Layout fixes: top bar, legend, badges shift when sidebar open
 
 ## Phase 3 : Timeline & Historical Replay (P1)
 - [ ] Timeline scrubber bar (play/pause/speed)

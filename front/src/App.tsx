@@ -249,6 +249,8 @@ export default function App() {
   );
   const [trajectoryStatus, setTrajectoryStatus] = useState<"loading" | "done" | "error" | "idle">("idle");
   const [trajectoryCount, setTrajectoryCount] = useState(0);
+  const [speedRange, setSpeedRange] = useState<[number, number]>([0, 50]);
+  const [showLabels, setShowLabels] = useState(false);
 
   const handleSelectVessel = useCallback((mmsi: number) => {
     setSelectedMmsi(mmsi);
@@ -693,6 +695,38 @@ export default function App() {
     }
   }, [activeCategories, sourceReady]);
 
+  // Toggle vessel name labels
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !sourceReady) return;
+    if (showLabels) {
+      if (!map.getLayer("vessel-label")) {
+        map.addLayer({
+          id: "vessel-label",
+          type: "symbol",
+          source: "vessels",
+          filter: categoryFilter(activeCategories),
+          layout: {
+            "text-field": ["get", "name"],
+            "text-font": ["Open Sans Semibold"],
+            "text-size": 11,
+            "text-offset": [0, 1.6],
+            "text-optional": true,
+          },
+          paint: {
+            "text-color": theme === "dark" ? "#e2e2ed" : "#1a1a2e",
+            "text-halo-color": theme === "dark" ? "#0f0f1c" : "#ffffff",
+            "text-halo-width": 1.5,
+          },
+        }, "vessel-point");
+      }
+    } else {
+      if (map.getLayer("vessel-label")) {
+        map.removeLayer("vessel-label");
+      }
+    }
+  }, [showLabels, sourceReady, theme]);
+
   // Satellite tile layer
   useEffect(() => {
     const map = mapRef.current;
@@ -795,7 +829,7 @@ export default function App() {
   }, [sat.scenes, sourceReady]);
 
   return (
-    <div className={`map-wrap${mapVisible ? " visible" : ""}`}>
+    <div className={`map-wrap${mapVisible ? " visible" : ""}${!sidebarCollapsed ? " sidebar-open" : ""}`}>
       <Sidebar
         vessels={vessels}
         loading={loading}
@@ -809,6 +843,10 @@ export default function App() {
         onToggleCategory={handleToggleCategory}
         trajectoryStatus={trajectoryStatus}
         trajectoryCount={trajectoryCount}
+        speedRange={speedRange}
+        onSpeedRangeChange={setSpeedRange}
+        showLabels={showLabels}
+        onToggleLabels={() => setShowLabels((v) => !v)}
       />
       <div ref={mapContainer} className="map-container" />
 

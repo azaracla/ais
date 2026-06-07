@@ -38,6 +38,10 @@ interface Props {
   onToggleCategory: (cat: ShipType) => void;
   trajectoryStatus: "loading" | "done" | "error" | "idle";
   trajectoryCount: number;
+  speedRange: [number, number];
+  onSpeedRangeChange: (range: [number, number]) => void;
+  showLabels: boolean;
+  onToggleLabels: () => void;
 }
 
 export default function Sidebar({
@@ -53,6 +57,10 @@ export default function Sidebar({
   onToggleCategory,
   trajectoryStatus,
   trajectoryCount,
+  speedRange,
+  onSpeedRangeChange,
+  showLabels,
+  onToggleLabels,
 }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -69,6 +77,9 @@ export default function Sidebar({
     if (activeCategories.size < 5) {
       list = list.filter((v) => activeCategories.has(v.shipType));
     }
+    list = list.filter(
+      (v) => v.speed >= speedRange[0] && v.speed <= speedRange[1],
+    );
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -89,7 +100,7 @@ export default function Sidebar({
       }
     });
     return list;
-  }, [vessels, activeCategories, searchQuery, sortKey]);
+  }, [vessels, activeCategories, searchQuery, sortKey, speedRange]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<ShipType, number> = {
@@ -103,6 +114,14 @@ export default function Sidebar({
       counts[v.shipType]++;
     }
     return counts;
+  }, [vessels]);
+
+  const maxSpeed = useMemo(() => {
+    let max = 50;
+    for (const v of vessels) {
+      if (v.speed > max) max = Math.ceil(v.speed);
+    }
+    return max;
   }, [vessels]);
 
   const selectedVessel = useMemo(
@@ -249,6 +268,50 @@ export default function Sidebar({
                     </span>
                   </button>
                 ))}
+              </div>
+
+              <div className="sidebar-speed">
+                <div className="sidebar-speed-header">
+                  <span className="sidebar-speed-label">
+                    Speed: {speedRange[0]}–{speedRange[1]} kn
+                  </span>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={showLabels}
+                      onChange={onToggleLabels}
+                    />
+                    Labels
+                  </label>
+                </div>
+                <div className="sidebar-speed-sliders">
+                  <input
+                    type="range"
+                    className="speed-range"
+                    min={0}
+                    max={maxSpeed}
+                    value={speedRange[0]}
+                    onChange={(e) =>
+                      onSpeedRangeChange([
+                        Math.min(Number(e.target.value), speedRange[1]),
+                        speedRange[1],
+                      ])
+                    }
+                  />
+                  <input
+                    type="range"
+                    className="speed-range"
+                    min={0}
+                    max={maxSpeed}
+                    value={speedRange[1]}
+                    onChange={(e) =>
+                      onSpeedRangeChange([
+                        speedRange[0],
+                        Math.max(Number(e.target.value), speedRange[0]),
+                      ])
+                    }
+                  />
+                </div>
               </div>
 
               <div className="sidebar-sort">
