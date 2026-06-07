@@ -1,9 +1,9 @@
 {
   "version": "v8",
   "best_model": "Two-Stage",
-  "test_mae": 10.527693528551406,
-  "test_mae_single": 13.753777368225423,
-  "test_mae_2stage": 10.527693528551406,
+  "test_mae": 9.967632064695474,
+  "test_mae_single": 12.773257516618703,
+  "test_mae_2stage": 9.967632064695474,
   "feature_names": [
     "dist_to_dest_km",
     "sog",
@@ -63,6 +63,6 @@
     51,
     52
   ],
-  "n_trees": 500,
+  "n_trees": 5000,
   "random_seed": 42
 }
