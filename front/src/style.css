@@ -268,7 +268,7 @@ select.input-text { cursor: pointer; max-width: 200px; }
 
 /* ── Bottom Bar (timeline + floating elements) ── */
 .bottom-bar {
-  position: absolute;
+  position: fixed;
   bottom: 12px;
   left: 12px;
   right: 12px;
@@ -286,8 +286,9 @@ select.input-text { cursor: pointer; max-width: 200px; }
 /* ── Legend ────────────────────────────── */
 .legend {
   position: absolute;
-  bottom: calc(100% + 8px);
+  top: -8px;
   right: 0;
+  transform: translateY(-100%);
   z-index: 1;
   min-width: 140px;
 }
@@ -323,8 +324,9 @@ select.input-text { cursor: pointer; max-width: 200px; }
 }
 .legend-toggle {
   position: absolute;
-  bottom: calc(100% + 8px);
+  top: -8px;
   right: 0;
+  transform: translateY(-100%);
   display: none;
 }
 
@@ -351,8 +353,9 @@ select.input-text { cursor: pointer; max-width: 200px; }
 /* ── Acquisition Time Badge ────────────── */
 .acq-badge {
   position: absolute;
-  bottom: calc(100% + 8px);
+  top: -8px;
   left: 0;
+  transform: translateY(-100%);
   z-index: 1;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(8px);
