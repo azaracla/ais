@@ -87,6 +87,10 @@ export function useDraw(map: maplibregl.Map | null) {
   useEffect(() => {
     if (!map || mode !== "drawing") return;
 
+    const canvas = map.getCanvas();
+
+    const toLngLat = (point: { x: number; y: number }) => map.unproject(point as maplibregl.PointLike);
+
     const onMouseDown = (e: maplibregl.MapMouseEvent) => {
       mouseDownRef.current = { x: e.point.x, y: e.point.y };
     };
@@ -100,7 +104,48 @@ export function useDraw(map: maplibregl.Map | null) {
       const dy = e.point.y - down.y;
       if (Math.sqrt(dx * dx + dy * dy) > CLICK_THRESHOLD) return;
 
-      const { lng, lat } = e.lngLat;
+      handleClick(e.lngLat);
+    };
+
+    const onMouseMove = (e: maplibregl.MapMouseEvent) => {
+      if (!startRef.current) return;
+      renderRect(startRef.current, { lng: e.lngLat.lng, lat: e.lngLat.lat }, true);
+    };
+
+    // Touch support
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      mouseDownRef.current = { x: t.clientX, y: t.clientY };
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      const down = mouseDownRef.current;
+      if (!down) return;
+      mouseDownRef.current = null;
+
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - down.x;
+      const dy = t.clientY - down.y;
+      if (Math.sqrt(dx * dx + dy * dy) > CLICK_THRESHOLD) return;
+
+      const lngLat = toLngLat({ x: t.clientX, y: t.clientY });
+      handleClick(lngLat);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!startRef.current || e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const lngLat = toLngLat({ x: t.clientX, y: t.clientY });
+      renderRect(startRef.current, { lng: lngLat.lng, lat: lngLat.lat }, true);
+    };
+
+    const handleClick = (lngLat: maplibregl.LngLatLike) => {
+      const { lng, lat } = lngLat as { lng: number; lat: number };
       const start = startRef.current;
 
       if (!start) {
@@ -122,21 +167,22 @@ export function useDraw(map: maplibregl.Map | null) {
       setDrawBounds({ west, east, south, north });
     };
 
-    const onMouseMove = (e: maplibregl.MapMouseEvent) => {
-      if (!startRef.current) return;
-      renderRect(startRef.current, { lng: e.lngLat.lng, lat: e.lngLat.lat }, true);
-    };
-
     map.on("mousedown", onMouseDown as any);
     map.on("mouseup", onMouseUp as any);
     map.on("mousemove", onMouseMove as any);
-    map.getCanvas().style.cursor = "crosshair";
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
+    canvas.addEventListener("touchend", onTouchEnd, { passive: false });
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    canvas.style.cursor = "crosshair";
 
     return () => {
       map.off("mousedown", onMouseDown as any);
       map.off("mouseup", onMouseUp as any);
       map.off("mousemove", onMouseMove as any);
-      map.getCanvas().style.cursor = "";
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchend", onTouchEnd);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.style.cursor = "";
     };
   }, [map, mode, renderRect]);
 

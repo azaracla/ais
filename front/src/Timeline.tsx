@@ -7,6 +7,8 @@ interface Props {
   speedOptions: number[];
   isActive: boolean;
   loading: boolean;
+  date: string;
+  onDateChange: (date: string) => void;
   onTogglePlay: () => void;
   onSpeedChange: (s: number) => void;
   onScrub: (t: string) => void;
@@ -24,9 +26,6 @@ function fractionToTime(fraction: number, dayStart: Date): string {
   return new Date(ms).toISOString();
 }
 
-function formatTime(ts: string): string {
-  return new Date(ts).toISOString().slice(11, 16) + " UTC";
-}
 
 export default function Timeline({
   currentTime,
@@ -35,6 +34,8 @@ export default function Timeline({
   speedOptions,
   isActive,
   loading,
+  date,
+  onDateChange,
   onTogglePlay,
   onSpeedChange,
   onScrub,
@@ -55,6 +56,13 @@ export default function Timeline({
     [onScrub, dayStart],
   );
 
+  const handleDateChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onDateChange(new Date(e.target.value + "Z").toISOString());
+    },
+    [onDateChange],
+  );
+
   const handleReset = useCallback(() => {
     const now = new Date();
     onScrub(now.toISOString());
@@ -62,6 +70,13 @@ export default function Timeline({
 
   return (
     <div className={`timeline-bar${isActive ? " active" : ""}`}>
+      <input
+        type="datetime-local"
+        className="date-input input-text"
+        value={date.slice(0, 16)}
+        onChange={handleDateChange}
+      />
+
       <button
         className="timeline-btn timeline-play-btn"
         onClick={onTogglePlay}
@@ -79,7 +94,6 @@ export default function Timeline({
         )}
       </button>
 
-      <div className="timeline-time">{formatTime(currentTime)}</div>
 
       <div className="timeline-scrub-wrap">
         <input

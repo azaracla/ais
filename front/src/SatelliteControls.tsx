@@ -1,5 +1,6 @@
 import type { Sensor } from "./types";
 import type { SatelliteState } from "./useSatellite";
+import type { DrawMode } from "./useDraw";
 
 const SENSOR_LABELS: Record<Sensor, string> = {
   S1: "Sentinel-1 (Radar)",
@@ -15,6 +16,11 @@ interface Props {
   hasDrawArea: boolean;
   scenesOnly: boolean;
   onScenesOnlyChange: (v: boolean) => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  drawMode: DrawMode;
+  onStartDraw: () => void;
+  onClearDraw: () => void;
 }
 
 export default function SatelliteControls({
@@ -26,7 +32,26 @@ export default function SatelliteControls({
   hasDrawArea,
   scenesOnly,
   onScenesOnlyChange,
+  expanded,
+  onToggleExpand,
+  drawMode,
+  onStartDraw,
+  onClearDraw,
 }: Props) {
+  if (!expanded) {
+    return (
+      <button
+        className={`panel panel-md btn${active ? " btn-active" : ""}`}
+        onClick={onToggleExpand}
+        title="Satellite imagery"
+      >
+        🛰️ {active ? SENSOR_LABELS[active] : "Satellite"}
+      </button>
+    );
+  }
+
+  const drawing = drawMode === "drawing";
+
   return (
     <div className="panel panel-md sat-controls">
       <div className="sat-row">
@@ -40,6 +65,27 @@ export default function SatelliteControls({
             {s === null ? "Basemap" : SENSOR_LABELS[s]}
           </button>
         ))}
+        <button className="btn" onClick={onToggleExpand} title="Collapse">
+          ✕
+        </button>
+      </div>
+
+      <div className="sat-row">
+        <span className="control-label">Area</span>
+        <button
+          className={`btn${drawing ? " btn-active" : ""}`}
+          onClick={onStartDraw}
+          disabled={drawing}
+        >
+          {drawing ? "Click 2 corners" : "Rectangle"}
+        </button>
+        <button
+          className="btn"
+          onClick={onClearDraw}
+          disabled={!hasDrawArea && !drawing}
+        >
+          Clear
+        </button>
       </div>
 
       {active && (

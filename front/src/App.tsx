@@ -250,7 +250,7 @@ export default function App() {
 
   const timeline = useTimeline(date, bounds, selectedMmsis);
   const displayVessels = timeline.isActive ? timeline.timelineVessels : vessels;
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [activeCategories, setActiveCategories] = useState<Set<ShipType>>(
     new Set(["cargo", "tanker", "passenger", "fishing", "pleasure"]),
   );
@@ -258,6 +258,8 @@ export default function App() {
   const [trajectoryCount, setTrajectoryCount] = useState(0);
   const [speedRange, setSpeedRange] = useState<[number, number]>([0, 50]);
   const [showLabels, setShowLabels] = useState(false);
+  const [legendVisible, setLegendVisible] = useState(true);
+  const [satelliteExpanded, setSatelliteExpanded] = useState(false);
 
   const handleSelectVessel = useCallback((mmsi: number, shift: boolean) => {
     if (shift) {
@@ -949,18 +951,10 @@ export default function App() {
       />
       <div ref={mapContainer} className="map-container" />
 
-      {/* Timeline bar */}
-      <Timeline
-        currentTime={timeline.currentTime}
-        playing={timeline.playing}
-        speed={timeline.speed}
-        speedOptions={timeline.speedOptions}
-        isActive={timeline.isActive}
-        loading={timeline.timelineLoading}
-        onTogglePlay={timeline.togglePlaying}
-        onSpeedChange={timeline.setSpeed}
-        onScrub={timeline.setCurrentTime}
-        getDayRange={timeline.getDayRange}
+      {/* Backdrop — mobile sidebar dismiss */}
+      <div
+        className={`sidebar-backdrop${!sidebarCollapsed ? " visible" : ""}`}
+        onClick={() => setSidebarCollapsed(true)}
       />
 
       {/* Theme toggle */}
@@ -975,42 +969,13 @@ export default function App() {
 
       {/* Top bar */}
       <div className="top-bar">
-        <div className="panel panel-md control-group">
-          <label className="control-label">Date (UTC)</label>
-          <input
-            type="datetime-local"
-            className={`input-text${timeline.isActive ? " input-dimmed" : ""}`}
-            value={(timeline.isActive ? timeline.currentTime : date).slice(0, 16)}
-            disabled={timeline.isActive}
-            onChange={(e) =>
-              setDate(new Date(e.target.value + "Z").toISOString())
-            }
-          />
-        </div>
-
-        <div className="panel panel-md control-group">
-          <span className="control-label">Draw</span>
-          <button
-            className={`btn${mode === "drawing" ? " btn-active" : ""}`}
-            onClick={startDraw}
-            disabled={mode === "drawing"}
-          >
-            {mode === "drawing" ? "Click 2 corners" : "Rectangle"}
-          </button>
-          <button
-            className="btn"
-            onClick={clear}
-            disabled={!drawBounds && mode !== "drawing"}
-          >
-            Clear
-          </button>
-        </div>
 
         <SatelliteControls
           active={sensor}
           onSensorChange={(s) => {
             setSensor(s);
             setSatManualDate(null);
+            if (s === null) setSatelliteExpanded(false);
           }}
           date={satManualDate}
           onDateChange={setSatManualDate}
@@ -1018,6 +983,11 @@ export default function App() {
           hasDrawArea={hasDrawArea}
           scenesOnly={scenesOnly}
           onScenesOnlyChange={setScenesOnly}
+          expanded={satelliteExpanded}
+          onToggleExpand={() => setSatelliteExpanded((v) => !v)}
+          drawMode={mode}
+          onStartDraw={startDraw}
+          onClearDraw={clear}
         />
 
         {!ready && (
@@ -1039,29 +1009,62 @@ export default function App() {
         )}
       </div>
 
-      {/* Acquisition time badge */}
-      {sensor && sat.acquisitionTime && (
-        <div className="acq-badge">
-          {sensor === "S1" ? "Sentinel-1" : "Sentinel-2"} ·{" "}
-          {sat.acquisitionTime}
-        </div>
-      )}
+      {/* Bottom area — timeline + floating elements */}
+      <div className="bottom-bar">
+        <Timeline
+          currentTime={timeline.currentTime}
+          playing={timeline.playing}
+          speed={timeline.speed}
+          speedOptions={timeline.speedOptions}
+          isActive={timeline.isActive}
+          loading={timeline.timelineLoading}
+          date={timeline.isActive ? timeline.currentTime : date}
+          onDateChange={setDate}
+          onTogglePlay={timeline.togglePlaying}
+          onSpeedChange={timeline.setSpeed}
+          onScrub={timeline.setCurrentTime}
+          getDayRange={timeline.getDayRange}
+        />
 
-      {/* Legend */}
-      <div className="panel panel-lg legend">
-        <div className="legend-title">Vessel Types</div>
-        {VESSEL_META.map((m) => (
-          <div key={m.key} className="legend-item">
-            <span
-              className="legend-swatch"
-              style={{ "--swatch-color": m.color } as React.CSSProperties}
-            />
-            {m.label}
+        {/* Acquisition time badge */}
+        {sensor && sat.acquisitionTime && (
+          <div className="acq-badge">
+            {sensor === "S1" ? "Sentinel-1" : "Sentinel-2"} ·{" "}
+            {sat.acquisitionTime}
           </div>
-        ))}
-        <div className="legend-count">
-          {displayVessels.length.toLocaleString()} vessels
+        )}
+
+        {/* Legend */}
+        <div className={`panel panel-lg legend${legendVisible ? " mobile-visible" : ""}`}>
+          <div className="legend-title">Vessel Types</div>
+          {VESSEL_META.map((m) => (
+            <div key={m.key} className="legend-item">
+              <span
+                className="legend-swatch"
+                style={{ "--swatch-color": m.color } as React.CSSProperties}
+              />
+              {m.label}
+            </div>
+          ))}
+          <div className="legend-count">
+            {displayVessels.length.toLocaleString()} vessels
+          </div>
         </div>
+
+        {/* Legend toggle (mobile only) */}
+        <button
+          className={`panel panel-sm legend-toggle${legendVisible ? " active" : ""}`}
+          onClick={() => setLegendVisible((v) => !v)}
+          title="Toggle legend"
+          aria-label="Toggle legend"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+            <line x1="4" y1="5" x2="12" y2="5" stroke="currentColor" strokeWidth="1.5" />
+            <line x1="4" y1="8" x2="10" y2="8" stroke="currentColor" strokeWidth="1.5" />
+            <line x1="4" y1="11" x2="12" y2="11" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+        </button>
       </div>
     </div>
   );
