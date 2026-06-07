@@ -1,6 +1,6 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
-import duckdb_wasm_mvp from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
-import DuckDBWorkerMVP from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?worker";
+import duckdb_wasm_eh from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
+import DuckDBWorkerEH from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?worker";
 import type { Vessel, Bounds } from "./types";
 import { shipTypeAISToCategory } from "./types";
 
@@ -25,12 +25,10 @@ export async function initDuckDB(): Promise<void> {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    const worker = new DuckDBWorkerMVP();
+    const worker = new DuckDBWorkerEH();
     db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
-    await db.instantiate(duckdb_wasm_mvp, "?modulePath=");
+    await db.instantiate(duckdb_wasm_eh, "?modulePath=");
 
-    // reliableHeadRequests: true — le catalog DuckLake est un fichier DuckDB,
-    // pas un Parquet, et a besoin des HEAD requests pour les Range.
     await db.open({
       filesystem: {
         allowFullHTTPReads: false,
@@ -42,8 +40,6 @@ export async function initDuckDB(): Promise<void> {
     conn = await db.connect();
 
     await conn.query("SET enable_object_cache=true;");
-    await conn.query("SET enable_http_metadata_cache=false;");
-    await conn.query("SET enable_external_file_cache=false;");
     await conn.query(
       "ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake' AS ais (TYPE ducklake, DATA_PATH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/', OVERRIDE_DATA_PATH true)"
     );
