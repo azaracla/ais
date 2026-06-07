@@ -9,7 +9,7 @@ Serverless AIS maritime traffic viewer. Ingest raw AIS messages via WebSocket �
 ## Stack
 
 - **Storage**: OVHcloud S3 (path-style addressing), public-read bucket
-- **Pipeline**: Python (asyncio, boto3, DuckDB, PyArrow, zstandard)
+- **Pipeline**: Python 3.13 + uv (asyncio, boto3, DuckDB, PyArrow, zstandard)
 - **Frontend**: React 19 + TypeScript + Maplibre GL + `@duckdb/duckdb-wasm`
 - **Satellite proxy**: FastAPI (Python) proxying Google Earth Engine tiles
 - **Infra**: Terraform (OVH provider)
@@ -17,20 +17,25 @@ Serverless AIS maritime traffic viewer. Ingest raw AIS messages via WebSocket �
 ## Common Commands
 
 ```bash
-# Pipeline
-pip install -r requirements.txt
-docker-compose up -d                          # start listener(s)
+# Pipeline (uv — package manager, no venv activation needed)
+uv sync                                         # install all deps (first time)
+uv run python pipeline/v3/pipeline.py --date YYYY-MM-DD
+uv run python pipeline/v3/pipeline.py --from YYYY-MM-DD --to YYYY-MM-DD
+uv run python pipeline/v3/pipeline.py --date YYYY-MM-DD --force
+uv run python pipeline/v3/pipeline.py --date YYYY-MM-DD --tables vessels_positions,vessels
+
+# Legacy v2 pipeline
+docker-compose up -d                            # start listener(s)
 python pipeline/consolidate_optimized.py --date YYYY-MM-DD
 python pipeline/publish_ducklake.py --date YYYY-MM-DD
-python pipeline/publish_ducklake.py --from YYYY-MM-DD --to YYYY-MM-DD --force
 
 # Frontend
-cd front && npm install && npm run dev        # Vite dev server
-cd front && npm run build                     # production build
-cd front && npm run lint                      # ESLint
+cd front && npm install && npm run dev          # Vite dev server
+cd front && npm run build                       # production build
+cd front && npm run lint                        # ESLint
 
 # Satellite proxy
-cd front/services/satellite-proxy && uvicorn main:app --port 8000
+cd front/services/satellite-proxy && uv run uvicorn main:app --port 8000
 
 # Infrastructure
 cd infra && terraform init && terraform apply
@@ -85,13 +90,85 @@ FastAPI server proxying Google Earth Engine. Endpoints: `/map` (returns tile URL
 
 Terraform for OVHcloud: creates an S3 user with credentials, two buckets (`ais-raw-{env}` and `ais-public-{env}`), S3 policy granting full access, and a null_resource to set public-read ACL on existing objects.
 
+## DuckLake Catalog — Remote Attach
+
+### Read-only (frontend / analytics)
+
+Le catalog est en lecture publique via HTTPS. Pas besoin de credentials S3.
+
+```sql
+-- DuckDB WASM / CLI read-only
+INSTALL httpfs; LOAD httpfs;
+INSTALL ducklake; LOAD ducklake;
+SET enable_http_metadata_cache=false;  -- évite HTTP 416 sur fichiers ré-uploadés
+ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake' AS ais
+  (TYPE ducklake, DATA_PATH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/',
+   OVERRIDE_DATA_PATH true);
+```
+
+**Important** :
+- Toujours `OVERRIDE_DATA_PATH true` — le catalog stocke le DATA_PATH d'origine (peut être `s3://`), le client lit en HTTPS public.
+- `SET enable_http_metadata_cache=false` si le catalog est mis à jour fréquemment, sinon HTTP 416 sur les fichiers ré-uploadés avec un footer différent.
+- Le DATA_PATH doit pointer vers le dossier parent des fichiers Parquet (Hive partitioning).
+- `ais.ducklake` = metadata catalog, `ais.ducklake.files/` = dossier contenant les `.parquet`.
+
+### Read-write (pipeline Python)
+
+```python
+import duckdb
+con = duckdb.connect()
+con.execute('INSTALL httpfs; INSTALL ducklake; LOAD httpfs; LOAD ducklake')
+# S3 credentials obligatoires pour l'écriture
+con.execute(f"SET s3_endpoint='{OVH_ENDPOINT.replace('https://', '')}'")
+con.execute("SET s3_region='gra'")
+con.execute(f"SET s3_access_key_id='{OVH_ACCESS_KEY}'")
+con.execute(f"SET s3_secret_access_key='{OVH_SECRET_KEY}'")
+con.execute("SET s3_url_style='path'; SET s3_use_ssl=true")
+
+# Attach avec DATA_PATH S3 pour pouvoir écrire
+s3_data_path = f"s3://{BUCKET_PUBLIC}/v3/ais.ducklake.files/"
+con.execute(f"""
+    ATTACH 's3://{BUCKET_PUBLIC}/v3/ais.ducklake' AS ais_lake (
+        TYPE ducklake, DATA_PATH '{s3_data_path}',
+        OVERRIDE_DATA_PATH true
+    )
+""")
+```
+
+**Pièges** :
+- Le DATA_PATH du catalog est **stocké dans le fichier** `ais.ducklake`. Si le pipeline écrit avec `s3://` et le frontend lit en `https://`, le catalog doit avoir `https://` comme DATA_PATH. Le `pipeline.py` utilise `OVERRIDE_DATA_PATH true` à l'attach pour forcer `s3://` en écriture, mais le DATA_PATH stocké reste celui du catalog.
+- Pour que les clients HTTPS fonctionnent, le `pipeline.py` stocke `https_data_path` dans le catalog initial (`is_new`). Les updates suivants utilisent `s3_data_path` en session mais préservent le `https_data_path` stocké.
+- `AUTOMATIC_MIGRATION true` seulement au premier attach — permet à DuckLake d'ajouter les colonnes manquantes dans le schéma du catalog.
+
+### Nettoyage complet du catalog v3 distant
+
+Supprimer et recréer tout le catalog + données :
+
+```bash
+# 1. Supprimer les fichiers Parquet distants
+aws s3 rm s3://ais-public-prod/v3/ais.ducklake.files/ --recursive \
+  --endpoint-url=https://s3.gra.io.cloud.ovh.net
+
+# 2. Supprimer le catalog
+aws s3 rm s3://ais-public-prod/v3/ais.ducklake \
+  --endpoint-url=https://s3.gra.io.cloud.ovh.net
+
+# 3. Supprimer le cache local
+rm -f pipeline/v3/catalog/ais.ducklake
+rm -rf pipeline/v3/output/*
+rm -rf pipeline/v3/work/*
+
+# 4. Tout reprocesser (12 jours)
+python pipeline/v3/pipeline.py --from 2026-05-26 --to 2026-06-06
+```
+
 ## Key Conventions
 
 - S3 addressing is **path-style** (`s3.gra.io.cloud.ovh.net/{bucket}/{key}`), not virtual-hosted. Both Python boto3 and DuckDB WASM configs must reflect this.
 - Parquet files use **ZSTD compression**, row groups of 100k rows, sorted by `message_type, mmsi, ts`.
 - The `vessel_tracks` table stores lat/lon as **integers** (`ROUND(lat * 1e5)`) to reduce Parquet size. Query code divides by `1e5` when reading.
 - `consolidate_optimized.py` uses the raw bucket (`BUCKET_RAW`) for both input and output; the output key in `BUCKET_SILVER = BUCKET_RAW` is deliberate — silver files live alongside raw under a `silver/` prefix in the same bucket.
-- DuckLake catalog path in the frontend uses `/v2/` prefix (`ais.ducklake` and `ais.ducklake.files/`). This is the current production catalog version.
+- The frontend DuckLake catalog is at `/v3/` (production). The catalog file is `ais.ducklake`, data files under `ais.ducklake.files/`.
 - The `pipeline/v2/` directory referenced by CI doesn't exist in the repo — it's a work-in-progress or separate deployment.
 - No test suite exists for this project. It's a technical prototype.
 - Environment: copy `.env.template` to `.env` and fill in credentials.
