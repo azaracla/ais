@@ -1,7 +1,8 @@
-"""Build ML training dataset v2 — predict time-to-arrival.
+"""Build ML training dataset v3 — predict time-to-arrival.
 
 Target: time_to_arrival_hours = arrival_ts - current_position_ts.
-Features: distance, speed, course, vessel characteristics, time context.
+Features: distance, speed, course, vessel characteristics, time context,
+          historical speed (1h/6h/24h avg), eta_naive (dist/sog ratio).
 
 Samples multiple positions along each vessel's trajectory before arrival.
 No dependency on declared ETA → model works for any vessel with a destination.
@@ -25,7 +26,7 @@ SAMPLE_WINDOW_MIN = 5  # minutes tolerance around target time
 
 
 def build():
-    print("Building training dataset v2 (time-to-arrival) ...")
+    print("Building training dataset v3 (time-to-arrival) ...")
     con = duckdb.connect()
 
     # ── Load arrivals ──
@@ -50,6 +51,49 @@ def build():
     n_pos = con.execute("SELECT count(*) FROM positions").fetchone()[0]
     print(f"  {n_pos} positions")
 
+    # ── Historical SOG features (epoch-based window functions) ──
+    # DuckDB RANGE BETWEEN doesn't support INTERVAL directly on TIMESTAMPTZ.
+    # Use EXTRACT(EPOCH FROM ts) for numeric range windows.
+    print("Computing historical SOG features (1h, 6h, 24h averages) ...")
+    con.execute("""
+        CREATE TABLE positions_hist AS
+        SELECT
+            mmsi, ts, lat, lon, sog, cog,
+            COALESCE(
+                AVG(sog) OVER (
+                    PARTITION BY mmsi
+                    ORDER BY EXTRACT(EPOCH FROM ts)
+                    RANGE BETWEEN 3600 PRECEDING AND CURRENT ROW
+                ), sog
+            ) AS avg_sog_1h,
+            COALESCE(
+                AVG(sog) OVER (
+                    PARTITION BY mmsi
+                    ORDER BY EXTRACT(EPOCH FROM ts)
+                    RANGE BETWEEN 21600 PRECEDING AND CURRENT ROW
+                ), sog
+            ) AS avg_sog_6h,
+            COALESCE(
+                AVG(sog) OVER (
+                    PARTITION BY mmsi
+                    ORDER BY EXTRACT(EPOCH FROM ts)
+                    RANGE BETWEEN 86400 PRECEDING AND CURRENT ROW
+                ), sog
+            ) AS avg_sog_24h,
+            -- Speed trend: current sog minus avg of previous hour (excluding current row)
+            COALESCE(
+                sog - AVG(sog) OVER (
+                    PARTITION BY mmsi
+                    ORDER BY EXTRACT(EPOCH FROM ts)
+                    RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
+                ), 0.0
+            ) AS sog_trend_1h
+        FROM positions
+    """)
+
+    n_hist = con.execute("SELECT count(*) FROM positions_hist").fetchone()[0]
+    print(f"  {n_hist} positions with history")
+
     # ── Join arrivals with positions ──
     # Keep positions in the window [arrival_ts - 7 days, arrival_ts - 5 min]
     print("Joining positions with arrivals ...")
@@ -70,10 +114,13 @@ def build():
             p.lon AS pos_lon,
             p.sog AS pos_sog,
             p.cog AS pos_cog,
-            DATEDIFF('second', p.ts, a.arrival_ts) / 3600.0 AS time_to_arrival_hours,
-            -- Only keep positions before arrival and within 7 days
+            p.avg_sog_1h,
+            p.avg_sog_6h,
+            p.avg_sog_24h,
+            p.sog_trend_1h,
+            DATEDIFF('second', p.ts, a.arrival_ts) / 3600.0 AS time_to_arrival_hours
         FROM arrivals a
-        JOIN positions p ON a.mmsi = p.mmsi
+        JOIN positions_hist p ON a.mmsi = p.mmsi
         WHERE p.ts <= a.arrival_ts - INTERVAL '5' MINUTE
           AND p.ts >= a.arrival_ts - INTERVAL '7' DAY
     """)
@@ -90,7 +137,8 @@ def build():
             SELECT DISTINCT ON (mmsi, arrival_ts)
                 mmsi, arrival_ts, arrival_lat, arrival_lon,
                 port_lo_code, port_lat, port_lon, destination_clean, detection_method,
-                pos_ts, pos_lat, pos_lon, pos_sog, pos_cog, time_to_arrival_hours
+                pos_ts, pos_lat, pos_lon, pos_sog, pos_cog, time_to_arrival_hours,
+                avg_sog_1h, avg_sog_6h, avg_sog_24h, sog_trend_1h
             FROM traj
             WHERE time_to_arrival_hours BETWEEN {t_min} AND {t_max}
             ORDER BY mmsi, arrival_ts, ABS(time_to_arrival_hours - {target_h}) ASC
@@ -108,6 +156,7 @@ def build():
         "destination_clean", "detection_method",
         "pos_ts", "pos_lat", "pos_lon", "pos_sog", "pos_cog",
         "time_to_arrival_hours",
+        "avg_sog_1h", "avg_sog_6h", "avg_sog_24h", "sog_trend_1h",
     ]
     df_samples = pl.DataFrame(sampled_rows, schema=columns, orient="row")
     df_samples.write_parquet(DATA_DIR / "_samples.parquet")
@@ -122,7 +171,6 @@ def build():
     """)
 
     # ── Compute spatial features in Python (vectorized via polars) ──
-    import polars as pl
     df_sv = pl.read_parquet(DATA_DIR / "_samples.parquet")
     # Join with vessels
     vessels_df = con.execute("SELECT mmsi, ship_type, length, width FROM vessels").pl()
@@ -131,7 +179,8 @@ def build():
         pl.col("width").fill_null(0).alias("vessel_width"),
     ])
 
-    # Compute haversine distance and bearing offset
+    # Compute haversine distance
+    import numpy as np
     def haversine_vec(lat1, lon1, lat2, lon2):
         """Vectorized haversine (km)."""
         r = 6371.0
@@ -140,7 +189,6 @@ def build():
         a = np.sin(dlat / 2) ** 2 + np.cos(np.radians(lat1)) * np.cos(np.radians(lat2)) * np.sin(dlon / 2) ** 2
         return 2 * r * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
 
-    import numpy as np
     d = haversine_vec(
         df_sv["pos_lat"].to_numpy(), df_sv["pos_lon"].to_numpy(),
         df_sv["port_lat"].to_numpy(), df_sv["port_lon"].to_numpy(),
@@ -160,12 +208,11 @@ def build():
     offset = np.where(offset > 180, 360 - offset, offset)
     df_sv = df_sv.with_columns(pl.Series("bearing_offset_deg", offset))
 
-    # Write enriched dataset back
     df_sv.write_parquet(DATA_DIR / "_samples_enriched.parquet")
     con.execute(f"DROP TABLE IF EXISTS samples_vessel")
     con.execute(f"CREATE TABLE samples_vessel AS SELECT * FROM read_parquet('{DATA_DIR / '_samples_enriched.parquet'}')")
 
-    # ── Add time features and filter ──
+    # ── Add time features, eta_naive, and filter ──
     con.execute("""
         CREATE TABLE dataset AS
         SELECT
@@ -182,15 +229,22 @@ def build():
                  ELSE 0 END AS length_width_ratio,
             EXTRACT(HOUR FROM pos_ts) AS hour_of_day,
             EXTRACT(DAYOFWEEK FROM pos_ts) AS day_of_week,
+            -- Historical speed features
+            COALESCE(avg_sog_1h, pos_sog) AS avg_sog_1h,
+            COALESCE(avg_sog_6h, pos_sog) AS avg_sog_6h,
+            COALESCE(avg_sog_24h, pos_sog) AS avg_sog_24h,
+            COALESCE(sog_trend_1h, 0) AS sog_trend_1h,
+            -- Naive ETA: distance / speed. XGBoost can't learn this ratio well.
+            ROUND(dist_to_dest_km / GREATEST(pos_sog, 1.0), 2) AS eta_naive_h,
             detection_method
         FROM samples_vessel
         WHERE dist_to_dest_km IS NOT NULL
           AND dist_to_dest_km > 0
-          AND dist_to_dest_km < 20000  -- reasonable max distance
+          AND dist_to_dest_km < 20000
           AND time_to_arrival_hours > 0
-          AND time_to_arrival_hours < 200  -- max ~8 days
-          AND pos_sog > 0  -- vessel must be moving (stopped = already arrived)
-          AND pos_sog < 50  -- reasonable max speed
+          AND time_to_arrival_hours < 200
+          AND pos_sog > 0
+          AND pos_sog < 50
     """)
 
     n_final = con.execute("SELECT count(*) FROM dataset").fetchone()[0]
@@ -211,16 +265,18 @@ def build():
             ROUND(STDDEV(time_to_arrival_hours), 1) AS std_tta_h,
             ROUND(AVG(dist_to_dest_km), 1) AS avg_dist_km,
             ROUND(AVG(sog), 1) AS avg_sog,
-            ROUND(AVG(bearing_offset_deg), 1) AS avg_bearing_off
+            ROUND(AVG(bearing_offset_deg), 1) AS avg_bearing_off,
+            ROUND(AVG(eta_naive_h), 1) AS avg_eta_naive
         FROM dataset
     """).fetchone()
     print(f"""
-Dataset v2 stats:
+Dataset v3 stats:
   Rows:           {stats[0]}
   Time-to-arrival: mean={stats[1]}h  std={stats[2]}h
   Avg distance:   {stats[3]} km
   Avg SOG:        {stats[4]} kn
   Avg bearing off:{stats[5]}°
+  Avg eta_naive:  {stats[6]}h
 """)
 
     # By time horizon
