@@ -7,7 +7,7 @@ import { useTimeline } from "./useTimeline";
 import { queryVesselHistory } from "./duckdb";
 import { useSatellite } from "./useSatellite";
 import { useDraw } from "./useDraw";
-import SatelliteControls from "./SatelliteControls";
+// import SatelliteControls from "./SatelliteControls"; // réactivé quand satellite revient
 import Timeline from "./Timeline";
 import Sidebar from "./Sidebar";
 import { vesselsToGeoJSON } from "./mockData";
@@ -259,7 +259,8 @@ export default function App() {
   const [speedRange, setSpeedRange] = useState<[number, number]>([0, 50]);
   const [showLabels, setShowLabels] = useState(false);
   const [legendVisible, setLegendVisible] = useState(true);
-  const [satelliteExpanded, setSatelliteExpanded] = useState(false);
+  const [_satelliteExpanded, _setSatelliteExpanded] = useState(false);
+  void _satelliteExpanded; void _setSatelliteExpanded; // réactivé quand SatelliteControls revient
 
   const handleSelectVessel = useCallback((mmsi: number, shift: boolean) => {
     if (shift) {
@@ -316,8 +317,9 @@ export default function App() {
   const [scenesOnly, setScenesOnly] = useState(true);
   const [satManualDate, setSatManualDate] = useState<string | null>(null);
   const satDate = satManualDate ?? date.slice(0, 10);
-  const { mode, drawBounds, startDraw, clear } = useDraw(mapRef.current);
+  const { mode, drawBounds, startDraw, clear: _clear } = useDraw(mapRef.current);
   const hasDrawArea = drawBounds !== null;
+  void _clear; void hasDrawArea; void setSensor; void setScenesOnly; void setSatManualDate; void mode; void startDraw; // réactivé quand SatelliteControls revient
   const satBounds = drawBounds ?? bounds;
   const sat = useSatellite(sensor, satBounds, satDate);
 
@@ -342,6 +344,7 @@ export default function App() {
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "light" ? "dark" : "light"));
   }, []);
+  void toggleTheme; // réactivé quand le bouton soleil revient
 
   // Track shift key state for multi-select
   useEffect(() => {
