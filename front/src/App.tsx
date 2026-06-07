@@ -3,12 +3,13 @@ import "./style.css";
 import { useRef, useEffect, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
 import { useVessels } from "./useVessels";
-import { queryVesselHistory, cancelQuery } from "./duckdb";
+import { queryVesselHistory, cancelQuery, getAllVessels } from "./duckdb";
 import { useSatellite } from "./useSatellite";
 import { useDraw } from "./useDraw";
 import SatelliteControls from "./SatelliteControls";
+import Sidebar from "./Sidebar";
 import { vesselsToGeoJSON } from "./mockData";
-import type { Bounds, Sensor } from "./types";
+import type { Bounds, Sensor, ShipType } from "./types";
 
 const VESSEL_META = [
   { key: "cargo", color: "#3b82f6", label: "Cargo" },
@@ -194,6 +195,11 @@ function iconImageExpr(): maplibregl.DataDrivenPropertyValueSpecification<string
   return ["match", ["get", "shipType"], ...cases] as any;
 }
 
+function categoryFilter(active: Set<ShipType>): maplibregl.FilterSpecification {
+  if (active.size === 5) return ["has", "shipType"];
+  return ["in", ["get", "shipType"], ["literal", Array.from(active)]] as any;
+}
+
 /* ── Theme helpers ─────────────────────── */
 
 function getInitialTheme(): "light" | "dark" {
@@ -223,7 +229,6 @@ export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [sourceReady, setSourceReady] = useState(false);
   const sceneAcqTsRef = useRef<number | null>(null);
-  const popupRef = useRef<maplibregl.Popup | null>(null);
   const trajectoryGenRef = useRef(0);
   const [mapVisible, setMapVisible] = useState(false);
 
@@ -236,6 +241,51 @@ export default function App() {
   dateRef.current = date;
   const [bounds, setBounds] = useState<Bounds | null>(null);
   const { vessels, loading, error, ready } = useVessels(date, bounds);
+
+  const [selectedMmsi, setSelectedMmsi] = useState<number | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [activeCategories, setActiveCategories] = useState<Set<ShipType>>(
+    new Set(["cargo", "tanker", "passenger", "fishing", "pleasure"]),
+  );
+  const [trajectoryStatus, setTrajectoryStatus] = useState<"loading" | "done" | "error" | "idle">("idle");
+  const [trajectoryCount, setTrajectoryCount] = useState(0);
+
+  const handleSelectVessel = useCallback((mmsi: number) => {
+    setSelectedMmsi(mmsi);
+    const v = vessels.find((vv) => vv.id === mmsi);
+    if (v && mapRef.current) {
+      mapRef.current.flyTo({
+        center: [v.lng, v.lat],
+        zoom: Math.max(mapRef.current.getZoom(), 8),
+        duration: 600,
+      });
+    }
+  }, [vessels]);
+
+  const handleBackToList = useCallback(() => {
+    setSelectedMmsi(null);
+    setTrajectoryStatus("idle");
+    setTrajectoryCount(0);
+    const map = mapRef.current;
+    if (map) {
+      const trajSrc = map.getSource("vessel-trajectory") as maplibregl.GeoJSONSource | undefined;
+      if (trajSrc) trajSrc.setData({ type: "FeatureCollection", features: [] });
+      const radSrc = map.getSource("vessel-radius") as maplibregl.GeoJSONSource | undefined;
+      if (radSrc) radSrc.setData({ type: "FeatureCollection", features: [] });
+    }
+  }, []);
+
+  const handleToggleCategory = useCallback((cat: ShipType) => {
+    setActiveCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) {
+        if (next.size > 1) next.delete(cat);
+      } else {
+        next.add(cat);
+      }
+      return next;
+    });
+  }, []);
 
   const [sensor, setSensor] = useState<Sensor | null>(null);
   const [scenesOnly, setScenesOnly] = useState(true);
@@ -250,6 +300,8 @@ export default function App() {
   useEffect(() => {
     if (!ready) return;
     setMapVisible(true);
+    // Preload vessel name cache for search
+    getAllVessels().catch((e) => console.warn("Failed to preload vessel cache:", e));
     // Notify splash screen
     const splash = document.getElementById("splash");
     if (splash) {
@@ -297,48 +349,32 @@ export default function App() {
         m.addImage(id, drawShipIcon(meta.color, ICON_SIZE, themeRef.current));
       }
 
+      // Vessel layer with dynamic category filter
       if (!m.getSource("vessels")) {
         m.addSource("vessels", {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
         });
-        m.addLayer({
-          id: "vessel-point",
-          type: "symbol",
-          source: "vessels",
-          layout: {
-            "icon-image": iconImageExpr(),
-            "icon-rotate": ["get", "heading"],
-            "icon-rotation-alignment": "map",
-            "icon-allow-overlap": true,
-            "icon-ignore-placement": true,
-            "icon-size": 0.65,
-          },
-          paint: {
-            "icon-opacity": 0.9,
-            "icon-opacity-transition": { duration: 300 },
-          },
-        });
       }
-
-      // Click off vessel → close popup
-      m.on("click", (e) => {
-        if (
-          m.queryRenderedFeatures(e.point, { layers: ["vessel-point"] }).length >
-          0
-        )
-          return;
-        popupRef.current?.remove();
-        popupRef.current = null;
-        clearVesselOverlays(m);
+      if (m.getLayer("vessel-point")) m.removeLayer("vessel-point");
+      m.addLayer({
+        id: "vessel-point",
+        type: "symbol",
+        source: "vessels",
+        filter: categoryFilter(activeCategories),
+        layout: {
+          "icon-image": iconImageExpr(),
+          "icon-rotate": ["get", "heading"],
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-size": 0.65,
+        },
+        paint: {
+          "icon-opacity": 0.9,
+          "icon-opacity-transition": { duration: 300 },
+        },
       });
-
-      function clearVesselOverlays(map: maplibregl.Map) {
-        ["vessel-radius", "vessel-trajectory"].forEach((src) => {
-          const s = map.getSource(src) as maplibregl.GeoJSONSource | undefined;
-          if (s) s.setData({ type: "FeatureCollection", features: [] });
-        });
-      }
 
       // Search radius source + layer
       m.addSource("vessel-radius", {
@@ -438,7 +474,30 @@ export default function App() {
         m.getCanvas().style.cursor = "";
       });
 
-      // Vessel click: popup + radius + trajectory
+      // Vessel hover: tooltip
+      const hoverPopup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 6,
+        className: "hover-tooltip",
+      });
+      m.on("mousemove", "vessel-point", (e) => {
+        const f = e.features?.[0];
+        if (!f?.properties) return;
+        m.getCanvas().style.cursor = "pointer";
+        hoverPopup
+          .setLngLat(e.lngLat)
+          .setHTML(
+            `<span class="hover-tooltip-text">${escapeHtml(f.properties.name)} &middot; ${Number(f.properties.speed).toFixed(1)} kn &middot; ${f.properties.heading}&deg;</span>`,
+          )
+          .addTo(m);
+      });
+      m.on("mouseleave", "vessel-point", () => {
+        hoverPopup.remove();
+        m.getCanvas().style.cursor = "";
+      });
+
+      // Vessel click: radius + trajectory + sidebar selection
       m.on("click", "vessel-point", async (e) => {
         const f = e.features?.[0];
         if (!f) return;
@@ -446,15 +505,16 @@ export default function App() {
         if (!p) return;
 
         const mmsi = p.id as number | undefined;
-        const shipType = p.shipType as string | undefined;
-        const meta = VESSEL_META.find((m) => m.key === shipType);
-        const color = meta?.color ?? "#888";
-        const trajSource = m.getSource(
-          "vessel-trajectory",
-        ) as maplibregl.GeoJSONSource | undefined;
+        if (!mmsi) return;
 
-        popupRef.current?.remove();
-        popupRef.current = null;
+        setSelectedMmsi(mmsi);
+
+        // Fly to vessel
+        m.flyTo({
+          center: (f.geometry as any).coordinates as [number, number],
+          zoom: Math.max(m.getZoom(), 8),
+          duration: 600,
+        });
 
         // Search radius
         const acqTs = sceneAcqTsRef.current;
@@ -477,28 +537,28 @@ export default function App() {
           });
         }
 
-        // Trajectory — use vessel color for arrow
+        // Trajectory
+        const shipType = p.shipType as string | undefined;
+        const meta = VESSEL_META.find((mt) => mt.key === shipType);
+        const color = meta?.color ?? "#888";
         const arrowId = "traj-arrow";
         if (m.hasImage(arrowId)) m.removeImage(arrowId);
         m.addImage(arrowId, makeArrowIcon(color, themeRef.current));
 
+        const trajSource = m.getSource(
+          "vessel-trajectory",
+        ) as maplibregl.GeoJSONSource | undefined;
+
         const gen = ++trajectoryGenRef.current;
-        if (mmsi && p.ts && trajSource) {
+        if (p.ts && trajSource) {
+          setTrajectoryStatus("loading");
+          setTrajectoryCount(0);
           await cancelQuery();
           queryVesselHistory(mmsi, p.ts)
             .then((positions) => {
               if (gen !== trajectoryGenRef.current || !trajSource) return;
-              // Update loading indicator in popup
-              const statusEl = popupRef.current
-                ?.getElement()
-                ?.querySelector(".traj-status");
-              if (statusEl) {
-                statusEl.textContent =
-                  positions.length >= 2
-                    ? `${positions.length} track points`
-                    : "No track data";
-                statusEl.className = "traj-status traj-status-done";
-              }
+              setTrajectoryStatus("done");
+              setTrajectoryCount(positions.length);
               if (positions.length < 2) return;
               const coords: [number, number][] = positions.map((pt) => [
                 pt.lng,
@@ -509,7 +569,6 @@ export default function App() {
                   color,
                   ts: pt.ts instanceof Date ? pt.ts.toISOString() : String(pt.ts),
                 };
-                // Use stored heading when available, else compute bearing to next point
                 if (pt.heading != null) {
                   props.bearing = pt.heading;
                 } else if (i < positions.length - 1) {
@@ -536,47 +595,26 @@ export default function App() {
               });
             })
             .catch(() => {
-              const statusEl = popupRef.current
-                ?.getElement()
-                ?.querySelector(".traj-status");
-              if (statusEl) {
-                statusEl.textContent = "Track unavailable";
-                statusEl.className = "traj-status traj-status-error";
-              }
+              if (gen !== trajectoryGenRef.current) return;
+              setTrajectoryStatus("error");
             });
         }
-
-        // Popup
-        const popup = new maplibregl.Popup({ offset: 10, maxWidth: "260px" })
-          .setLngLat((f.geometry as any).coordinates)
-          .setHTML(
-            `<div class="popup-header">
-              <span class="popup-color-bar" style="background:${color}"></span>
-              ${escapeHtml(p.name)}
-            </div>
-            <div class="popup-body">
-              <span class="popup-field-label">Type</span>
-              <span class="popup-field-value" style="text-transform:capitalize">${escapeHtml(p.shipType)}</span>
-              <span class="popup-field-label">Speed</span>
-              <span class="popup-field-value">${Number(p.speed).toFixed(1)} kn</span>
-              <span class="popup-field-label">Heading</span>
-              <span class="popup-field-value">${p.heading}°</span>
-              ${p.destination ? `<span class="popup-field-label">Destination</span><span class="popup-field-value">${escapeHtml(p.destination)}</span>` : ""}
-              ${p.ts ? `<span class="popup-field-label">AIS time</span><span class="popup-field-value mono">${new Date(p.ts).toISOString().slice(0, 19).replace("T", " ")} UTC</span>` : ""}
-              <div class="traj-status"><span class="spinner-sm"></span> Loading track…</div>
-            </div>`,
-          )
-          .addTo(m);
-
-        popup.on("close", () => clearVesselOverlays(m));
-        popupRef.current = popup;
       });
 
-      m.on("mouseenter", "vessel-point", () => {
-        m.getCanvas().style.cursor = "pointer";
-      });
-      m.on("mouseleave", "vessel-point", () => {
-        m.getCanvas().style.cursor = "";
+      // Click off vessel → clear selection
+      m.on("click", (e) => {
+        if (
+          m.queryRenderedFeatures(e.point, { layers: ["vessel-point"] }).length >
+          0
+        )
+          return;
+        setSelectedMmsi(null);
+        setTrajectoryStatus("idle");
+        setTrajectoryCount(0);
+        const radSrc = m.getSource("vessel-radius") as maplibregl.GeoJSONSource | undefined;
+        if (radSrc) radSrc.setData({ type: "FeatureCollection", features: [] });
+        const trajSrc = m.getSource("vessel-trajectory") as maplibregl.GeoJSONSource | undefined;
+        if (trajSrc) trajSrc.setData({ type: "FeatureCollection", features: [] });
       });
 
       if (!sourceReady) setSourceReady(true);
@@ -644,6 +682,16 @@ export default function App() {
       source.setData(vesselsToGeoJSON(vessels));
     }
   }, [vessels, sourceReady]);
+
+  // Update vessel layer filter when categories change
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !sourceReady) return;
+    const layer = map.getLayer("vessel-point");
+    if (layer) {
+      map.setFilter("vessel-point", categoryFilter(activeCategories));
+    }
+  }, [activeCategories, sourceReady]);
 
   // Satellite tile layer
   useEffect(() => {
@@ -748,6 +796,20 @@ export default function App() {
 
   return (
     <div className={`map-wrap${mapVisible ? " visible" : ""}`}>
+      <Sidebar
+        vessels={vessels}
+        loading={loading}
+        error={error}
+        selectedMmsi={selectedMmsi}
+        onSelectVessel={handleSelectVessel}
+        onBack={handleBackToList}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+        activeCategories={activeCategories}
+        onToggleCategory={handleToggleCategory}
+        trajectoryStatus={trajectoryStatus}
+        trajectoryCount={trajectoryCount}
+      />
       <div ref={mapContainer} className="map-container" />
 
       {/* Theme toggle */}
