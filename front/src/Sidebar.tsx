@@ -32,6 +32,7 @@ interface Props {
   loading: boolean;
   error: string | null;
   selectedMmsi: number | null;
+  selectedMmsis?: Set<number>;
   onSelectVessel: (mmsi: number) => void;
   onBack: () => void;
   collapsed: boolean;
@@ -51,6 +52,7 @@ export default function Sidebar({
   loading,
   error,
   selectedMmsi,
+  selectedMmsis,
   onSelectVessel,
   onBack,
   collapsed,
@@ -372,7 +374,7 @@ export default function Sidebar({
                   <button
                     key={v.id}
                     className={`sidebar-item${
-                      selectedMmsi === v.id ? " selected" : ""
+                      (selectedMmsis?.has(v.id) || selectedMmsi === v.id) ? " selected" : ""
                     }`}
                     onClick={() => onSelectVessel(v.id)}
                   >

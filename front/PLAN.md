@@ -16,11 +16,11 @@
 - [ ] Vessel density heatmap at low zoom levels
 - [x] Layout fixes: top bar, legend, badges shift when sidebar open
 
-## Phase 3 : Timeline & Historical Replay (P1)
-- [ ] Timeline scrubber bar (play/pause/speed)
-- [ ] Animated vessel positions over time
-- [ ] Persistent wake/trail for recent positions
-- [ ] Multi-vessel selection (shift+click)
+## Phase 3 : Timeline & Historical Replay (P1) ✅
+- [x] Timeline scrubber bar (play/pause/speed)
+- [x] Animated vessel positions over time
+- [x] Persistent wake/trail for recent positions
+- [x] Multi-vessel selection (shift+click)
 
 ## Phase 4 : Port Info & ETA (P2)
 - [ ] Port overlay (static GeoJSON)

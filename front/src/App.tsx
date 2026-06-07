@@ -3,10 +3,12 @@ import "./style.css";
 import { useRef, useEffect, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
 import { useVessels } from "./useVessels";
+import { useTimeline } from "./useTimeline";
 import { queryVesselHistory } from "./duckdb";
 import { useSatellite } from "./useSatellite";
 import { useDraw } from "./useDraw";
 import SatelliteControls from "./SatelliteControls";
+import Timeline from "./Timeline";
 import Sidebar from "./Sidebar";
 import { vesselsToGeoJSON } from "./mockData";
 import type { Bounds, Sensor, ShipType } from "./types";
@@ -238,11 +240,16 @@ export default function App() {
 
   const [date, setDate] = useState(DEFAULT_DATE);
   const dateRef = useRef(date);
-  dateRef.current = date;
+  useEffect(() => { dateRef.current = date; }, [date]);
+  const shiftRef = useRef(false);
   const [bounds, setBounds] = useState<Bounds | null>(null);
   const { vessels, loading, error, ready } = useVessels(date, bounds);
 
-  const [selectedMmsi, setSelectedMmsi] = useState<number | null>(null);
+  const [selectedMmsis, setSelectedMmsis] = useState<Set<number>>(new Set());
+  const selectedMmsi = selectedMmsis.size === 1 ? [...selectedMmsis][0] : null;
+
+  const timeline = useTimeline(date, bounds, selectedMmsis);
+  const displayVessels = timeline.isActive ? timeline.timelineVessels : vessels;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeCategories, setActiveCategories] = useState<Set<ShipType>>(
     new Set(["cargo", "tanker", "passenger", "fishing", "pleasure"]),
@@ -252,9 +259,21 @@ export default function App() {
   const [speedRange, setSpeedRange] = useState<[number, number]>([0, 50]);
   const [showLabels, setShowLabels] = useState(false);
 
-  const handleSelectVessel = useCallback((mmsi: number) => {
-    setSelectedMmsi(mmsi);
-    const v = vessels.find((vv) => vv.id === mmsi);
+  const handleSelectVessel = useCallback((mmsi: number, shift: boolean) => {
+    if (shift) {
+      setSelectedMmsis((prev) => {
+        const next = new Set(prev);
+        if (next.has(mmsi)) {
+          next.delete(mmsi);
+        } else {
+          next.add(mmsi);
+        }
+        return next;
+      });
+    } else {
+      setSelectedMmsis(new Set([mmsi]));
+    }
+    const v = (timeline.isActive ? timeline.timelineVessels : vessels).find((vv) => vv.id === mmsi);
     if (v && mapRef.current) {
       mapRef.current.flyTo({
         center: [v.lng, v.lat],
@@ -262,10 +281,10 @@ export default function App() {
         duration: 600,
       });
     }
-  }, [vessels]);
+  }, [vessels, timeline.isActive, timeline.timelineVessels]);
 
   const handleBackToList = useCallback(() => {
-    setSelectedMmsi(null);
+    setSelectedMmsis(new Set());
     setTrajectoryStatus("idle");
     setTrajectoryCount(0);
     const map = mapRef.current;
@@ -274,6 +293,8 @@ export default function App() {
       if (trajSrc) trajSrc.setData({ type: "FeatureCollection", features: [] });
       const radSrc = map.getSource("vessel-radius") as maplibregl.GeoJSONSource | undefined;
       if (radSrc) radSrc.setData({ type: "FeatureCollection", features: [] });
+      const wakeSrc = map.getSource("vessel-wake") as maplibregl.GeoJSONSource | undefined;
+      if (wakeSrc) wakeSrc.setData({ type: "FeatureCollection", features: [] });
     }
   }, []);
 
@@ -318,6 +339,18 @@ export default function App() {
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "light" ? "dark" : "light"));
+  }, []);
+
+  // Track shift key state for multi-select
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => { if (e.key === "Shift") shiftRef.current = true; };
+    const onUp = (e: KeyboardEvent) => { if (e.key === "Shift") shiftRef.current = false; };
+    window.addEventListener("keydown", onDown);
+    window.addEventListener("keyup", onUp);
+    return () => {
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+    };
   }, []);
 
   // Initialize map
@@ -451,6 +484,26 @@ export default function App() {
         },
       }, "vessel-point");
 
+      // Wake source + layer for vessel trails
+      m.addSource("vessel-wake", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      m.addLayer(
+        {
+          id: "vessel-wake-layer",
+          type: "line",
+          source: "vessel-wake",
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 2,
+            "line-opacity": 0.35,
+            "line-blur": 0.5,
+          },
+        },
+        "vessel-point",
+      );
+
       // Trajectory arrow hover: show time
       const trajPopup = new maplibregl.Popup({
         closeButton: false,
@@ -507,7 +560,18 @@ export default function App() {
         const mmsi = p.id as number | undefined;
         if (!mmsi) return;
 
-        setSelectedMmsi(mmsi);
+        const shift = e.originalEvent?.shiftKey ?? shiftRef.current;
+
+        if (shift) {
+          setSelectedMmsis((prev) => {
+            const next = new Set(prev);
+            if (next.has(mmsi)) next.delete(mmsi);
+            else next.add(mmsi);
+            return next;
+          });
+        } else {
+          setSelectedMmsis(new Set([mmsi]));
+        }
 
         // Fly to vessel
         m.flyTo({
@@ -607,13 +671,16 @@ export default function App() {
           0
         )
           return;
-        setSelectedMmsi(null);
+        if (e.originalEvent?.shiftKey) return;
+        setSelectedMmsis(new Set());
         setTrajectoryStatus("idle");
         setTrajectoryCount(0);
         const radSrc = m.getSource("vessel-radius") as maplibregl.GeoJSONSource | undefined;
         if (radSrc) radSrc.setData({ type: "FeatureCollection", features: [] });
         const trajSrc = m.getSource("vessel-trajectory") as maplibregl.GeoJSONSource | undefined;
         if (trajSrc) trajSrc.setData({ type: "FeatureCollection", features: [] });
+        const wakeSrc = m.getSource("vessel-wake") as maplibregl.GeoJSONSource | undefined;
+        if (wakeSrc) wakeSrc.setData({ type: "FeatureCollection", features: [] });
       });
 
       if (!sourceReady) setSourceReady(true);
@@ -667,20 +734,54 @@ export default function App() {
     });
   }, [theme]);
 
-  // Update vessel data on map
-  const prevVesselsRef = useRef(vessels);
+  // Update vessel data on map (from normal or timeline mode)
+  const prevDisplayVesselsRef = useRef(displayVessels);
   useEffect(() => {
-    if (!sourceReady || vessels === prevVesselsRef.current) return;
-    prevVesselsRef.current = vessels;
+    if (!sourceReady || displayVessels === prevDisplayVesselsRef.current) return;
+    prevDisplayVesselsRef.current = displayVessels;
 
     const map = mapRef.current;
     const source = map?.getSource("vessels") as
       | maplibregl.GeoJSONSource
       | undefined;
     if (source) {
-      source.setData(vesselsToGeoJSON(vessels));
+      source.setData(vesselsToGeoJSON(displayVessels));
     }
-  }, [vessels, sourceReady]);
+  }, [displayVessels, sourceReady]);
+
+  // Update wake data on map when timeline is active
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !sourceReady) return;
+
+    const wakeSrc = map.getSource("vessel-wake") as maplibregl.GeoJSONSource | undefined;
+    if (!wakeSrc) return;
+
+    if (!timeline.isActive || timeline.wakeData.size === 0) {
+      wakeSrc.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    const features: GeoJSON.Feature[] = [];
+    const shipTypeMap = new Map<number, string>();
+    for (const v of displayVessels) {
+      const meta = VESSEL_META.find((m) => m.key === v.shipType);
+      shipTypeMap.set(v.id, meta?.color ?? "#888");
+    }
+
+    for (const [mmsi, points] of timeline.wakeData) {
+      if (points.length < 2) continue;
+      if (!selectedMmsis.has(mmsi)) continue;
+      const coords: [number, number][] = points.map((p) => [p.lng, p.lat]);
+      const color = shipTypeMap.get(mmsi) ?? "#888";
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: coords },
+        properties: { color, mmsi },
+      });
+    }
+    wakeSrc.setData({ type: "FeatureCollection", features });
+  }, [timeline.wakeData, timeline.isActive, displayVessels, selectedMmsis, sourceReady]);
 
   // Update vessel layer filter when categories change
   useEffect(() => {
@@ -828,11 +929,12 @@ export default function App() {
   return (
     <div className={`map-wrap${mapVisible ? " visible" : ""}${!sidebarCollapsed ? " sidebar-open" : ""}`}>
       <Sidebar
-        vessels={vessels}
-        loading={loading}
+        vessels={displayVessels}
+        loading={loading || timeline.timelineLoading}
         error={error}
         selectedMmsi={selectedMmsi}
-        onSelectVessel={handleSelectVessel}
+        selectedMmsis={selectedMmsis}
+        onSelectVessel={(mmsi) => handleSelectVessel(mmsi, false)}
         onBack={handleBackToList}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
@@ -846,6 +948,20 @@ export default function App() {
         onToggleLabels={() => setShowLabels((v) => !v)}
       />
       <div ref={mapContainer} className="map-container" />
+
+      {/* Timeline bar */}
+      <Timeline
+        currentTime={timeline.currentTime}
+        playing={timeline.playing}
+        speed={timeline.speed}
+        speedOptions={timeline.speedOptions}
+        isActive={timeline.isActive}
+        loading={timeline.timelineLoading}
+        onTogglePlay={timeline.togglePlaying}
+        onSpeedChange={timeline.setSpeed}
+        onScrub={timeline.setCurrentTime}
+        getDayRange={timeline.getDayRange}
+      />
 
       {/* Theme toggle */}
       <button
@@ -863,8 +979,9 @@ export default function App() {
           <label className="control-label">Date (UTC)</label>
           <input
             type="datetime-local"
-            className="input-text"
-            value={date.slice(0, 16)}
+            className={`input-text${timeline.isActive ? " input-dimmed" : ""}`}
+            value={(timeline.isActive ? timeline.currentTime : date).slice(0, 16)}
+            disabled={timeline.isActive}
             onChange={(e) =>
               setDate(new Date(e.target.value + "Z").toISOString())
             }
@@ -943,7 +1060,7 @@ export default function App() {
           </div>
         ))}
         <div className="legend-count">
-          {vessels.length.toLocaleString()} vessels
+          {displayVessels.length.toLocaleString()} vessels
         </div>
       </div>
     </div>

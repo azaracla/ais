@@ -1,6 +1,20 @@
 export type ShipType = "cargo" | "tanker" | "passenger" | "fishing" | "pleasure";
 export type Sensor = "S1" | "S2";
 
+export interface TimelineState {
+  playing: boolean;
+  speed: number;
+  currentTime: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface WakePoint {
+  lat: number;
+  lng: number;
+  ts: string;
+}
+
 export interface Vessel {
   id: number;
   name: string;

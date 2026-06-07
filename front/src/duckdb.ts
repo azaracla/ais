@@ -1,7 +1,7 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
 import duckdb_wasm_eh from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import DuckDBWorkerEH from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?worker";
-import type { Vessel, VesselSummary, Bounds } from "./types";
+import type { Vessel, VesselSummary, Bounds, WakePoint } from "./types";
 import { shipTypeAISToCategory } from "./types";
 
 let db: duckdb.AsyncDuckDB | null = null;
@@ -167,6 +167,93 @@ export async function queryVesselHistory(
     ts: new Date(Number(row.ts) * 1000),
     heading: row.heading != null ? Number(row.heading) : null,
   }));
+}
+
+export async function queryPositionsAtTime(
+  date: string,
+  timestamp: string,
+  bounds: Bounds | null,
+  limit = 100000,
+): Promise<Vessel[]> {
+  if (!conn) throw new Error("DuckDB not initialized");
+
+  const d = new Date(date);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = d.getUTCDate();
+  const ts = new Date(timestamp).toISOString().slice(0, 19).replace("T", " ");
+
+  let spatialFilter = "";
+  if (bounds) {
+    spatialFilter = `
+      AND p.lat BETWEEN ${bounds.south} AND ${bounds.north}
+      AND p.lon BETWEEN ${bounds.west} AND ${bounds.east}
+    `;
+  }
+
+  const sql = `
+    SELECT DISTINCT ON (p.mmsi)
+      p.mmsi, p.lat, p.lon, p.sog, p.cog, p.true_heading, p.navigational_status,
+      p.ts, v.name, v.ship_type, v.destination,
+      v.imo_number, v.call_sign, v.length, v.width, v.last_seen_static
+    FROM ais.vessels_positions p
+    LEFT JOIN ais.vessels v ON v.mmsi = p.mmsi
+    WHERE p.year = ${year}
+      AND p.month = '${month}'
+      AND p.day = ${day}
+      AND p.ts BETWEEN TIMESTAMP '${ts}' - INTERVAL '15 minutes' AND TIMESTAMP '${ts}' + INTERVAL '5 minutes'
+      AND p.lat IS NOT NULL
+      AND p.lon IS NOT NULL
+      ${spatialFilter}
+    ORDER BY p.mmsi, ABS(EPOCH(CAST(p.ts AS TIMESTAMP) - TIMESTAMP '${ts}')) ASC
+    LIMIT ${limit}
+  `;
+
+  const asyncResult = await conn.send(sql);
+  const rows: any[] = [];
+  for await (const chunk of asyncResult) {
+    rows.push(...chunk);
+  }
+  return rows.map((row: any) => toVessel(row));
+}
+
+export async function queryVesselWake(
+  mmsis: number[],
+  startTime: string,
+  endTime: string,
+): Promise<Map<number, WakePoint[]>> {
+  if (!conn || mmsis.length === 0) return new Map();
+
+  const startTs = new Date(startTime).toISOString().slice(0, 19).replace("T", " ");
+  const endTs = new Date(endTime).toISOString().slice(0, 19).replace("T", " ");
+
+  const mmsiList = mmsis.join(",");
+
+  const sql = `
+    SELECT mmsi, lat, lon, ts
+    FROM ais.vessels_positions
+    WHERE mmsi IN (${mmsiList})
+      AND ts BETWEEN TIMESTAMP '${startTs}' AND TIMESTAMP '${endTs}'
+      AND lat IS NOT NULL
+      AND lon IS NOT NULL
+    ORDER BY mmsi, ts ASC
+    LIMIT 100000
+  `;
+
+  const asyncResult = await conn.send(sql);
+  const map = new Map<number, WakePoint[]>();
+  for await (const chunk of asyncResult) {
+    for (const row of chunk) {
+      const mmsi = Number(row.mmsi);
+      if (!map.has(mmsi)) map.set(mmsi, []);
+      map.get(mmsi)!.push({
+        lat: Number(row.lat),
+        lng: Number(row.lon),
+        ts: typeof row.ts === 'string' ? row.ts : String(row.ts),
+      });
+    }
+  }
+  return map;
 }
 
 export async function searchVessels(query: string, limit = 15): Promise<VesselSummary[]> {
