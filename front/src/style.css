@@ -1044,13 +1044,13 @@ select.input-text { cursor: pointer; max-width: 200px; }
   /* Override sidebar-open shifts — sidebar overlays, doesn't push */
   .map-wrap.sidebar-open .top-bar,
   .map-wrap.sidebar-open .bottom-bar {
-    left: 6px;
+    left: 0;
   }
 
   .bottom-bar {
-    bottom: 6px;
-    left: 6px;
-    right: 6px;
+    bottom: 0;
+    left: 0;
+    right: 0;
   }
 
   .top-bar {
@@ -1075,7 +1075,7 @@ select.input-text { cursor: pointer; max-width: 200px; }
   .btn { padding: 4px 8px; font-size: 11px; }
   .input-text { font-size: 11px; padding: 3px 6px; max-width: 110px; }
   .date-input,
-  .timeline-bar .date-input { font-size: 12px; padding: 4px 6px; width: 200px; min-width: 0; max-width: none; }
+  .timeline-bar .date-input { font-size: 14px; padding: 6px 10px; width: 220px; min-width: 0; max-width: none; }
   .control-label { font-size: 11px; display: none; }
   .sat-row { gap: 4px; flex-wrap: nowrap; }
 
@@ -1141,6 +1141,9 @@ select.input-text { cursor: pointer; max-width: 200px; }
     font-size: 11px;
     display: none;
     z-index: 11;
+    top: -12px;
+    right: 12px;
+    transform: translateY(-100%);
   }
   .legend.mobile-visible {
     display: block;
@@ -1149,14 +1152,17 @@ select.input-text { cursor: pointer; max-width: 200px; }
   .legend-item { font-size: 11px; line-height: 18px; }
   .legend-toggle {
     display: flex;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 14px;
     padding: 0;
+    top: -12px;
+    right: 12px;
+    transform: translateY(-100%);
   }
   .legend-toggle.active {
     background: var(--color-accent);
@@ -1166,31 +1172,35 @@ select.input-text { cursor: pointer; max-width: 200px; }
 
   /* ── Mobile Timeline ────────────────── */
   .timeline-bar {
-    padding: 4px 8px;
-    gap: 5px;
+    padding: 10px 12px;
+    gap: 10px;
     flex-wrap: wrap;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
   }
-  .timeline-play-btn { width: 28px; height: 28px; }
-  .timeline-btn { width: 26px; height: 26px; }
-  .timeline-speed { font-size: 11px; padding: 2px 4px; }
-  .timeline-scrub-wrap { min-width: 50px; }
-  .timeline-reset-btn { padding: 3px 8px; font-size: 10px; }
-  .timeline-spinner-wrap { width: 12px; }
+  .timeline-play-btn { width: 36px; height: 36px; }
+  .timeline-btn { width: 32px; height: 32px; }
+  .timeline-speed { font-size: 13px; padding: 4px 8px; }
+  .timeline-scrub-wrap { min-width: 60px; height: 32px; }
+  .timeline-reset-btn { padding: 5px 12px; font-size: 12px; }
+  .timeline-spinner-wrap { width: 16px; }
 
-  .acq-badge { font-size: 10px; }
+  .acq-badge { font-size: 11px; left: 12px; top: -10px; transform: translateY(-100%); }
 }
 
 /* ── Small Phones ───────────────────────── */
 @media (max-width: 480px) {
   .map-wrap.sidebar-open .top-bar,
   .map-wrap.sidebar-open .bottom-bar {
-    left: 4px;
+    left: 0;
   }
 
   .bottom-bar {
-    bottom: 4px;
-    left: 4px;
-    right: 4px;
+    bottom: 0;
+    left: 0;
+    right: 0;
   }
 
   .top-bar {
@@ -1202,22 +1212,29 @@ select.input-text { cursor: pointer; max-width: 200px; }
   .btn { padding: 3px 6px; font-size: 10px; }
   .input-text { font-size: 10px; max-width: 90px; }
   .date-input,
-  .timeline-bar .date-input { font-size: 11px; width: 180px; min-width: 0; max-width: none; }
+  .timeline-bar .date-input { font-size: 13px; padding: 5px 8px; width: 200px; min-width: 0; max-width: none; }
 
   .timeline-bar {
-    padding: 4px 6px;
-    gap: 4px;
+    padding: 8px 10px;
+    gap: 8px;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
   }
   .timeline-scrub-wrap {
     order: 10;
     width: 100%;
     flex-basis: 100%;
   }
-  .timeline-speed { font-size: 10px; }
+  .timeline-speed { font-size: 12px; }
+  .timeline-play-btn { width: 34px; height: 34px; }
+  .timeline-btn { width: 30px; height: 30px; }
+  .timeline-reset-btn { padding: 4px 10px; font-size: 11px; }
 
   .sidebar-toggle { top: 44px; left: 4px; width: 26px; height: 26px; }
   .theme-toggle { top: 44px; left: auto; right: 4px; width: 26px; height: 26px; font-size: 14px; }
-  .legend-toggle { width: 26px; height: 26px; }
+  .legend-toggle { width: 28px; height: 28px; top: -10px; right: 8px; transform: translateY(-100%); }
 }
 
 /* ── Timeline Bar ─────────────────────── */
