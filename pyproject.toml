@@ -16,6 +16,7 @@ dependencies = [
     "polars>=1.41.2",
     "lightgbm>=4.6.0",
     "optuna>=4.9.0",
+    "catboost>=1.2.10",
 ]
 
 [tool.uv]
