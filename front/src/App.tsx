@@ -960,37 +960,6 @@ export default function App() {
       {/* Top bar */}
       <div className="top-bar">
 
-        <div className="top-bar-spacer" />
-
-        <button
-          className="panel panel-sm theme-toggle"
-          onClick={toggleTheme}
-          title={theme === "dark" ? "Light mode" : "Dark mode"}
-          aria-label="Toggle theme"
-        >
-          {theme === "dark" ? "☀️" : "🌙"}
-        </button>
-
-        <SatelliteControls
-          active={sensor}
-          onSensorChange={(s) => {
-            setSensor(s);
-            setSatManualDate(null);
-            if (s === null) setSatelliteExpanded(false);
-          }}
-          date={satManualDate}
-          onDateChange={setSatManualDate}
-          sat={sat}
-          hasDrawArea={hasDrawArea}
-          scenesOnly={scenesOnly}
-          onScenesOnlyChange={setScenesOnly}
-          expanded={satelliteExpanded}
-          onToggleExpand={() => setSatelliteExpanded((v) => !v)}
-          drawMode={mode}
-          onStartDraw={startDraw}
-          onClearDraw={clear}
-        />
-
         {!ready && (
           <div className="panel panel-md badge badge-info">
             <span className="spinner-sm" />
