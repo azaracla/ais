@@ -3,7 +3,7 @@ import "./style.css";
 import { useRef, useEffect, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
 import { useVessels } from "./useVessels";
-import { queryVesselHistory, cancelQuery } from "./duckdb";
+import { queryVesselHistory } from "./duckdb";
 import { useSatellite } from "./useSatellite";
 import { useDraw } from "./useDraw";
 import SatelliteControls from "./SatelliteControls";
@@ -553,7 +553,6 @@ export default function App() {
         if (p.ts && trajSource) {
           setTrajectoryStatus("loading");
           setTrajectoryCount(0);
-          await cancelQuery();
           queryVesselHistory(mmsi, p.ts)
             .then((positions) => {
               if (gen !== trajectoryGenRef.current || !trajSource) return;

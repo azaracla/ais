@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getVesselDetail } from "./duckdb";
 import { navStatusLabel } from "./types";
 import type { Vessel, VesselDetail } from "./types";
@@ -20,16 +20,25 @@ export default function VesselDetails({
 }: Props) {
   const [detail, setDetail] = useState<VesselDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const genRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const gen = ++genRef.current;
     setDetail(null);
     setLoading(true);
     getVesselDetail(mmsi)
-      .then((d) => { if (!cancelled) setDetail(d); })
+      .then((d) => {
+        if (cancelled || gen !== genRef.current) return;
+        setDetail(d);
+      })
       .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => {
+        if (!cancelled && gen === genRef.current) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [mmsi]);
 
   const d = detail ?? vessel;
@@ -45,7 +54,7 @@ export default function VesselDetails({
         <span className="vd-label">MMSI</span>
         <span className="vd-value">{d.id}</span>
 
-        {detail?.imo && (
+        {detail?.imo != null && (
           <>
             <span className="vd-label">IMO</span>
             <span className="vd-value">{detail.imo}</span>
@@ -64,7 +73,7 @@ export default function VesselDetails({
           {d.shipType}
         </span>
 
-        {detail?.length != null && detail?.width != null && (
+        {detail?.length != null && detail?.width != null && isFinite(detail.length) && isFinite(detail.width) && (
           <>
             <span className="vd-label">Dimensions</span>
             <span className="vd-value">
