@@ -957,18 +957,17 @@ export default function App() {
         onClick={() => setSidebarCollapsed(true)}
       />
 
-      {/* Theme toggle */}
-      <button
-        className="panel panel-sm theme-toggle"
-        onClick={toggleTheme}
-        title={theme === "dark" ? "Light mode" : "Dark mode"}
-        aria-label="Toggle theme"
-      >
-        {theme === "dark" ? "☀️" : "🌙"}
-      </button>
-
       {/* Top bar */}
       <div className="top-bar">
+
+        <button
+          className="panel panel-sm theme-toggle"
+          onClick={toggleTheme}
+          title={theme === "dark" ? "Light mode" : "Dark mode"}
+          aria-label="Toggle theme"
+        >
+          {theme === "dark" ? "☀️" : "🌙"}
+        </button>
 
         <SatelliteControls
           active={sensor}
@@ -1009,6 +1008,38 @@ export default function App() {
         )}
       </div>
 
+      {/* Legend — top right */}
+      <div className={`panel panel-lg legend${legendVisible ? " mobile-visible" : ""}`}>
+        <div className="legend-title">Vessel Types</div>
+        {VESSEL_META.map((m) => (
+          <div key={m.key} className="legend-item">
+            <span
+              className="legend-swatch"
+              style={{ "--swatch-color": m.color } as React.CSSProperties}
+            />
+            {m.label}
+          </div>
+        ))}
+        <div className="legend-count">
+          {displayVessels.length.toLocaleString()} vessels
+        </div>
+      </div>
+
+      {/* Legend toggle (mobile only) */}
+      <button
+        className={`panel panel-sm legend-toggle${legendVisible ? " active" : ""}`}
+        onClick={() => setLegendVisible((v) => !v)}
+        title="Toggle legend"
+        aria-label="Toggle legend"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="4" y1="5" x2="12" y2="5" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="4" y1="8" x2="10" y2="8" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="4" y1="11" x2="12" y2="11" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </button>
+
       {/* Bottom area — timeline + floating elements */}
       <div className="bottom-bar">
         <Timeline
@@ -1033,38 +1064,6 @@ export default function App() {
             {sat.acquisitionTime}
           </div>
         )}
-
-        {/* Legend */}
-        <div className={`panel panel-lg legend${legendVisible ? " mobile-visible" : ""}`}>
-          <div className="legend-title">Vessel Types</div>
-          {VESSEL_META.map((m) => (
-            <div key={m.key} className="legend-item">
-              <span
-                className="legend-swatch"
-                style={{ "--swatch-color": m.color } as React.CSSProperties}
-              />
-              {m.label}
-            </div>
-          ))}
-          <div className="legend-count">
-            {displayVessels.length.toLocaleString()} vessels
-          </div>
-        </div>
-
-        {/* Legend toggle (mobile only) */}
-        <button
-          className={`panel panel-sm legend-toggle${legendVisible ? " active" : ""}`}
-          onClick={() => setLegendVisible((v) => !v)}
-          title="Toggle legend"
-          aria-label="Toggle legend"
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-            <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-            <line x1="4" y1="5" x2="12" y2="5" stroke="currentColor" strokeWidth="1.5" />
-            <line x1="4" y1="8" x2="10" y2="8" stroke="currentColor" strokeWidth="1.5" />
-            <line x1="4" y1="11" x2="12" y2="11" stroke="currentColor" strokeWidth="1.5" />
-          </svg>
-        </button>
       </div>
     </div>
   );
