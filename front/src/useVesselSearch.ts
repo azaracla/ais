@@ -1,49 +1,32 @@
-import { useEffect, useState, useRef, useCallback } from "react";
-import { getAllVessels } from "./duckdb";
+import { useState, useRef, useCallback } from "react";
+import { searchVessels } from "./duckdb";
 import type { VesselSummary } from "./types";
 
 export function useVesselSearch() {
-  const [cache, setCache] = useState<Map<number, VesselSummary> | null>(null);
-  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const allVessels = useRef<VesselSummary[]>([]);
-  const loadedRef = useRef(false);
-
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    getAllVessels()
-      .then((c) => {
-        setCache(c);
-        allVessels.current = Array.from(c.values());
-        setReady(true);
-      })
-      .catch((e) => setError(e.message ?? "Failed to load vessel index"));
-  }, []);
+  const [loading, setLoading] = useState(false);
+  const genRef = useRef(0);
 
   const search = useCallback(
-    (query: string, limit = 15): VesselSummary[] => {
-      if (!query.trim() || allVessels.current.length === 0) return [];
-      const q = query.toLowerCase();
-      const results: VesselSummary[] = [];
-      for (const v of allVessels.current) {
-        if (
-          v.name.toLowerCase().includes(q) ||
-          String(v.mmsi).includes(q)
-        ) {
-          results.push(v);
-          if (results.length >= limit) break;
-        }
+    async (query: string, limit = 15): Promise<VesselSummary[]> => {
+      if (!query.trim()) return [];
+      const gen = ++genRef.current;
+      setLoading(true);
+      setError(null);
+      try {
+        const results = await searchVessels(query, limit);
+        if (gen !== genRef.current) return [];
+        return results;
+      } catch (e: any) {
+        if (gen !== genRef.current) return [];
+        setError(e.message ?? "Search failed");
+        return [];
+      } finally {
+        if (gen === genRef.current) setLoading(false);
       }
-      return results;
     },
     [],
   );
 
-  const find = useCallback(
-    (mmsi: number): VesselSummary | undefined => cache?.get(mmsi),
-    [cache],
-  );
-
-  return { ready, error, search, find, cache };
+  return { error, loading, search };
 }

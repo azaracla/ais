@@ -3,7 +3,7 @@ import "./style.css";
 import { useRef, useEffect, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
 import { useVessels } from "./useVessels";
-import { queryVesselHistory, cancelQuery, getAllVessels } from "./duckdb";
+import { queryVesselHistory, cancelQuery } from "./duckdb";
 import { useSatellite } from "./useSatellite";
 import { useDraw } from "./useDraw";
 import SatelliteControls from "./SatelliteControls";
@@ -302,8 +302,6 @@ export default function App() {
   useEffect(() => {
     if (!ready) return;
     setMapVisible(true);
-    // Preload vessel name cache for search
-    getAllVessels().catch((e) => console.warn("Failed to preload vessel cache:", e));
     // Notify splash screen
     const splash = document.getElementById("splash");
     if (splash) {

@@ -1,7 +1,7 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useVesselSearch } from "./useVesselSearch";
 import VesselDetails from "./VesselDetails";
-import type { Vessel, ShipType } from "./types";
+import type { Vessel, VesselSummary, ShipType } from "./types";
 
 const SHIP_TYPE_KEYS: ShipType[] = [
   "cargo",
@@ -24,6 +24,8 @@ const SORT_OPTIONS = [
   { key: "name", label: "Name" },
   { key: "type", label: "Type" },
 ] as const;
+
+const MAX_RENDER = 500;
 
 interface Props {
   vessels: Vessel[];
@@ -65,11 +67,22 @@ export default function Sidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [sortKey, setSortKey] = useState<string>("speed");
-  const { search } = useVesselSearch();
+  const [suggestions, setSuggestions] = useState<VesselSummary[]>([]);
+  const { search, loading: searchLoading } = useVesselSearch();
+  const suggestGenRef = useRef(0);
 
-  const suggestions = useMemo(() => {
-    if (searchQuery.trim().length < 2) return [];
-    return search(searchQuery, 10);
+  useEffect(() => {
+    if (searchQuery.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    const gen = ++suggestGenRef.current;
+    const timer = setTimeout(() => {
+      search(searchQuery, 10).then((results) => {
+        if (gen === suggestGenRef.current) setSuggestions(results);
+      });
+    }, 200);
+    return () => clearTimeout(timer);
   }, [searchQuery, search]);
 
   const filteredVessels = useMemo(() => {
@@ -102,6 +115,11 @@ export default function Sidebar({
     return list;
   }, [vessels, activeCategories, searchQuery, sortKey, speedRange]);
 
+  const renderedVessels = useMemo(
+    () => filteredVessels.slice(0, MAX_RENDER),
+    [filteredVessels],
+  );
+
   const categoryCounts = useMemo(() => {
     const counts: Record<ShipType, number> = {
       cargo: 0,
@@ -133,6 +151,7 @@ export default function Sidebar({
     (mmsi: number) => {
       setSearchQuery("");
       setShowSuggestions(false);
+      setSuggestions([]);
       onSelectVessel(mmsi);
     },
     [onSelectVessel],
@@ -218,8 +237,18 @@ export default function Sidebar({
                   }
                   onKeyDown={handleSearchKeyDown}
                 />
-                {showSuggestions && suggestions.length > 0 && (
+                {showSuggestions && (
                   <div className="sidebar-suggestions">
+                    {searchLoading && (
+                      <div className="sidebar-suggestion-item" style={{ color: "var(--color-text-dim)" }}>
+                        <span className="spinner-sm" /> Searching…
+                      </div>
+                    )}
+                    {!searchLoading && suggestions.length === 0 && searchQuery.trim().length >= 2 && (
+                      <div className="sidebar-suggestion-item" style={{ color: "var(--color-text-dim)" }}>
+                        No vessels found
+                      </div>
+                    )}
                     {suggestions.map((s) => (
                       <button
                         key={s.mmsi}
@@ -340,7 +369,7 @@ export default function Sidebar({
               )}
 
               <div className="sidebar-list">
-                {filteredVessels.map((v) => (
+                {renderedVessels.map((v) => (
                   <button
                     key={v.id}
                     className={`sidebar-item${
@@ -381,9 +410,11 @@ export default function Sidebar({
               </div>
 
               <div className="sidebar-footer">
-                {filteredVessels.length < vessels.length
-                  ? `Showing ${filteredVessels.length.toLocaleString()} of ${vessels.length.toLocaleString()}`
-                  : `${vessels.length.toLocaleString()} vessels`}
+                {filteredVessels.length > renderedVessels.length
+                  ? `Showing ${renderedVessels.length.toLocaleString()} of ${filteredVessels.length.toLocaleString()} (scroll to map or filter)`
+                  : filteredVessels.length < vessels.length
+                    ? `Showing ${filteredVessels.length.toLocaleString()} of ${vessels.length.toLocaleString()}`
+                    : `${vessels.length.toLocaleString()} vessels`}
               </div>
             </>
           )}

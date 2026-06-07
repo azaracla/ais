@@ -168,38 +168,31 @@ export async function queryVesselHistory(
   }));
 }
 
-let vesselCache: Map<number, VesselSummary> | null = null;
-let vesselCachePromise: Promise<Map<number, VesselSummary>> | null = null;
+export async function searchVessels(query: string, limit = 15): Promise<VesselSummary[]> {
+  if (!duckDbReady) await initDuckDB();
+  if (!conn) throw new Error("DuckDB not initialized");
+  if (!query.trim()) return [];
 
-export async function getAllVessels(): Promise<Map<number, VesselSummary>> {
-  if (vesselCache) return vesselCache;
-  if (vesselCachePromise) return vesselCachePromise;
+  const sanitized = query.replace(/'/g, "''");
+  const sql = `
+    SELECT mmsi, name, ship_type
+    FROM ais.vessels
+    WHERE name ILIKE '%${sanitized}%'
+       OR CAST(mmsi AS VARCHAR) LIKE '%${sanitized}%'
+    ORDER BY name
+    LIMIT ${limit}
+  `;
 
-  vesselCachePromise = (async () => {
-    if (!duckDbReady) await initDuckDB();
-    if (!conn) throw new Error("DuckDB not initialized");
-    const sql = `SELECT mmsi, name, ship_type FROM ais.vessels WHERE name IS NOT NULL`;
-    const t0 = performance.now();
-    const result = await conn.send(sql);
-    const rows: any[] = [];
-    for await (const chunk of result) {
-      rows.push(...chunk);
-    }
-    const cache = new Map<number, VesselSummary>();
-    for (const row of rows) {
-      cache.set(Number(row.mmsi), {
-        mmsi: Number(row.mmsi),
-        name: row.name ?? "Unknown",
-        shipType: shipTypeAISToCategory(row.ship_type != null ? Number(row.ship_type) : null),
-      });
-    }
-    vesselCache = cache;
-    const t1 = performance.now();
-    console.log(`[DuckDB] Vessel cache loaded: ${cache.size} vessels in ${(t1 - t0).toFixed(0)}ms`);
-    return cache;
-  })();
-
-  return vesselCachePromise;
+  const result = await conn.send(sql);
+  const rows: any[] = [];
+  for await (const chunk of result) {
+    rows.push(...chunk);
+  }
+  return rows.map((row: any) => ({
+    mmsi: Number(row.mmsi),
+    name: row.name ?? "Unknown",
+    shipType: shipTypeAISToCategory(row.ship_type != null ? Number(row.ship_type) : null),
+  }));
 }
 
 export async function getVesselDetail(mmsi: number): Promise<VesselDetail | null> {
