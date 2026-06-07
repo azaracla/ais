@@ -658,40 +658,42 @@ def _migrate_schema(con, tables: set | None = None):
 
 
 def _clean_partitions(con, target_date: datetime, tables: set | None = None):
-    """Delete existing partitions for target_date (--force mode)."""
+    """Delete existing partitions for target_date (--force mode).
+    Deletes from ducklake_data_file metadata table directly — avoids
+    DuckLake trying to read data files that may have already been
+    overwritten (stale footer metadata → "No magic bytes" error).
+    """
     all_tables = tables is None
     y, m, d = target_date.year, f"{target_date.month:02d}", target_date.day
     date_str = target_date.strftime('%Y-%m-%d')
 
-    deletes = {
-        'messages':              f"year = {y} AND month = '{m}' AND day = {d}",
-        'vessels_positions':     f"year = {y} AND month = '{m}' AND day = {d}",
-        'vessel_tracks':         f"date = '{date_str}'",
-        'base_stations':         f"year = {y} AND month = '{m}' AND day = {d}",
-        'aids_to_navigation':    f"year = {y} AND month = '{m}' AND day = {d}",
+    # Path patterns for partition matching (LIKE on S3 path)
+    patterns = {
+        'messages':              f"%silver/year={y}/month={m}/day={d}/%",
+        'vessels_positions':     f"%vessels_positions/year={y}/month={m}/day={d}/%",
+        'vessel_tracks':         f"%vessel_tracks/date={date_str}/%",
+        'base_stations':         f"%base_stations/year={y}/month={m}/day={d}/%",
+        'aids_to_navigation':    f"%aids_to_navigation/year={y}/month={m}/day={d}/%",
+        'vessels':               f"%vessels/vessels.parquet%",
     }
-    for table_name, where in deletes.items():
-        if not all_tables and table_name not in tables:
+    for table_name, path_pattern in patterns.items():
+        if not all_tables and table_name not in (tables or set()):
             continue
         try:
-            con.execute(f"DELETE FROM ais_lake.{table_name} WHERE {where}")
-            print(f"   🗑️  {table_name}: partition {date_str} nettoyée")
+            result = con.execute(f"""
+                DELETE FROM __ducklake_metadata_ais_lake.ducklake_data_file
+                WHERE table_id = (
+                    SELECT table_id FROM __ducklake_metadata_ais_lake.ducklake_table
+                    WHERE table_name = '{table_name}'
+                )
+                AND path LIKE '{path_pattern}'
+            """)
+            deleted = result.fetchone()[0] if result else 0
+            if deleted > 0:
+                print(f"   🗑️  {table_name}: {deleted} fichier(s) "
+                      f"(partition {date_str})")
         except Exception as e:
             print(f"   ⚠️ DELETE {table_name}: {e}")
-
-    # Vessels is non-partitioned — full reset on --force.
-    # Delete from metadata directly to avoid reading stale data files.
-    if (all_tables or 'vessels' in (tables or set())):
-        try:
-            con.execute(
-                "DELETE FROM __ducklake_metadata_ais_lake.ducklake_data_file "
-                "WHERE table_id = (SELECT table_id FROM "
-                "__ducklake_metadata_ais_lake.ducklake_table "
-                "WHERE table_name = 'vessels')"
-            )
-            print(f"   🗑️  vessels: full reset (non-partitioned)")
-        except Exception as e:
-            print(f"   ⚠️ DELETE vessels: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

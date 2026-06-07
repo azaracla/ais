@@ -392,33 +392,6 @@ export default function App() {
         },
         "vessel-point",
       );
-      m.addLayer(
-        {
-          id: "vt-points",
-          type: "circle",
-          source: "vessel-trajectory",
-          filter: ["==", ["geometry-type"], "Point"],
-          paint: {
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              0,
-              2,
-              6,
-              4,
-              14,
-              6,
-            ],
-            "circle-color": ["get", "color"],
-            "circle-opacity": 1,
-            "circle-stroke-color": "#fff",
-            "circle-stroke-width": 1.5,
-          },
-        },
-        "vessel-point",
-      );
-
       // Arrow layer for trajectory direction
       const arrowId = "traj-arrow";
       if (!m.hasImage(arrowId)) {
@@ -440,16 +413,16 @@ export default function App() {
         paint: {
           "icon-opacity": 0.85,
         },
-      }, "vt-points");
+      }, "vessel-point");
 
-      // Trajectory point hover: show time
+      // Trajectory arrow hover: show time
       const trajPopup = new maplibregl.Popup({
         closeButton: false,
         closeOnClick: false,
         offset: 8,
         className: "traj-tooltip",
       });
-      m.on("mousemove", "vt-points", (e) => {
+      m.on("mousemove", "vt-arrows", (e) => {
         const f = e.features?.[0];
         if (!f?.properties?.ts) return;
         m.getCanvas().style.cursor = "crosshair";
@@ -460,7 +433,7 @@ export default function App() {
           )
           .addTo(m);
       });
-      m.on("mouseleave", "vt-points", () => {
+      m.on("mouseleave", "vt-arrows", () => {
         trajPopup.remove();
         m.getCanvas().style.cursor = "";
       });
