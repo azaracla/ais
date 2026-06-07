@@ -42,6 +42,7 @@ export async function initDuckDB(): Promise<void> {
     conn = await db.connect();
 
     await conn.query("SET enable_object_cache=true;");
+    await conn.query("SET enable_http_metadata_cache=false;");
     await conn.query(
       "ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake' AS ais (TYPE ducklake, DATA_PATH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/', OVERRIDE_DATA_PATH true)"
     );
