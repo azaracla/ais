@@ -1,10 +1,17 @@
 {
   "CORSRules": [
     {
-      "AllowedOrigins": ["*"],
+      "AllowedOrigins": [
+        "https://azaracla.github.io",
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+        "http://localhost:8080"
+      ],
       "AllowedMethods": ["GET", "HEAD"],
       "AllowedHeaders": ["Range"],
-      "ExposeHeaders": ["Content-Range", "Accept-Ranges", "Content-Length", "ETag"]
+      "ExposeHeaders": ["Content-Range", "Accept-Ranges", "Content-Length", "ETag"],
+      "MaxAgeSeconds": 3600
     }
   ]
 }

@@ -156,7 +156,7 @@ function bearing(lat1: number, lng1: number, lat2: number, lng2: number): number
 }
 
 /* ── Arrow icon for trajectory direction ── */
-function makeArrowIcon(color: string): ImageData {
+function makeArrowIcon(color: string, theme: "light" | "dark"): ImageData {
   const s = ARROW_SIZE;
   const canvas = document.createElement("canvas");
   canvas.width = s;
@@ -176,8 +176,9 @@ function makeArrowIcon(color: string): ImageData {
   ctx.closePath();
   ctx.fill();
 
-  ctx.strokeStyle = "rgba(255,255,255,0.7)";
-  ctx.lineWidth = 0.6;
+  // Contrasting outline for visibility on both light and dark backgrounds
+  ctx.strokeStyle = theme === "dark" ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.6)";
+  ctx.lineWidth = 1;
   ctx.stroke();
 
   return ctx.getImageData(0, 0, s, s);
@@ -421,7 +422,7 @@ export default function App() {
       // Arrow layer for trajectory direction
       const arrowId = "traj-arrow";
       if (!m.hasImage(arrowId)) {
-        m.addImage(arrowId, makeArrowIcon("#ffffff"));
+        m.addImage(arrowId, makeArrowIcon("#6366f1", themeRef.current));
       }
       m.addLayer({
         id: "vt-arrows",
@@ -503,7 +504,11 @@ export default function App() {
           });
         }
 
-        // Trajectory
+        // Trajectory — use vessel color for arrow
+        const arrowId = "traj-arrow";
+        if (m.hasImage(arrowId)) m.removeImage(arrowId);
+        m.addImage(arrowId, makeArrowIcon(color, themeRef.current));
+
         const gen = ++trajectoryGenRef.current;
         if (mmsi && p.ts && trajSource) {
           await cancelQuery();
@@ -644,6 +649,10 @@ export default function App() {
         if (map.hasImage(id)) map.removeImage(id);
         map.addImage(id, drawShipIcon(meta.color, ICON_SIZE, theme));
       }
+      // Re-create trajectory arrow for current theme
+      const arrowId = "traj-arrow";
+      if (map.hasImage(arrowId)) map.removeImage(arrowId);
+      map.addImage(arrowId, makeArrowIcon("#6366f1", theme));
       setSourceReady(true);
     });
   }, [theme]);

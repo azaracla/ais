@@ -29,8 +29,6 @@ export async function initDuckDB(): Promise<void> {
     db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
     await db.instantiate(duckdb_wasm_eh, "?modulePath=");
 
-    // forceFullHTTPReads doit être explicitement false (défaut: true).
-    // OVH S3 répond correctement au HEAD+Range → reliableHeadRequests: true.
     await db.open({
       filesystem: {
         allowFullHTTPReads: false,
@@ -143,7 +141,7 @@ export async function queryVesselHistory(
   const endDate = end.toISOString().slice(0, 10);
 
   const sql = `
-    SELECT lat, lon, ts
+    SELECT lat, lon, ts, heading
     FROM ais.vessel_tracks
     WHERE mmsi = ${mmsi}
       AND date >= '${startDate}'
@@ -164,7 +162,7 @@ export async function queryVesselHistory(
     lat: Number(row.lat) / 1e5,
     lng: Number(row.lon) / 1e5,
     ts: new Date(Number(row.ts) * 1000),
-    heading: null,
+    heading: row.heading != null ? Number(row.heading) : null,
   }));
 }
 

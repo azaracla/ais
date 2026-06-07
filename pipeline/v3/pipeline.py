@@ -289,10 +289,40 @@ def local_transform(target_date: datetime, work_dir_path: str,
             vessels_dir = os.path.join(gold_dir, 'vessels')
             os.makedirs(vessels_dir, exist_ok=True)
             vessels_file = os.path.join(vessels_dir, 'vessels.parquet')
-            run_sql(con, load_sql('03_vessels.sql'), {
-                'silver_path': silver_file,
-                'output_path': vessels_file,
-            })
+
+            # Download existing vessels for merge (fail gracefully if first run)
+            existing_vessels_path = os.path.join(
+                gold_dir, 'vessels_existing.parquet'
+            )
+            existing_key = f"{S3_DATA_PREFIX}/gold/vessels/vessels.parquet"
+            has_existing = False
+            try:
+                s3_client().download_file(
+                    BUCKET_PUBLIC, existing_key, existing_vessels_path
+                )
+                has_existing = True
+                print("   📥 Vessels existant téléchargé pour merge")
+            except Exception:
+                print("   🆕 Premier run vessels — pas de merge")
+
+            if has_existing:
+                run_sql(con, load_sql('03_vessels.sql'), {
+                    'silver_path': silver_file,
+                    'existing_vessels_path': existing_vessels_path,
+                    'output_path': vessels_file,
+                })
+                # Clean up temp file
+                try:
+                    os.remove(existing_vessels_path)
+                except OSError:
+                    pass
+            else:
+                # First run: extract from today's silver only
+                run_sql(con, load_sql('03_vessels_from_scratch.sql'), {
+                    'silver_path': silver_file,
+                    'output_path': vessels_file,
+                })
+
             stats['vessels'] = con.execute(
                 f"SELECT COUNT(*) FROM read_parquet('{vessels_file}')"
             ).fetchone()[0]
@@ -448,8 +478,6 @@ def update_catalog(s3, uploaded_files: list[tuple[str, str]],
         file_registry = _classify_files(uploaded_files, output_dir_path)
 
         for local_path, url in uploaded_files:
-            if url in known and not force:
-                continue
             info = file_registry.get(local_path)
             if not info:
                 continue
@@ -457,9 +485,27 @@ def update_catalog(s3, uploaded_files: list[tuple[str, str]],
             # Skip tables not requested
             if tables is not None and table_name not in tables:
                 continue
+            # Vessels is a single overwritten file — always re-register.
+            # Other tables skip if URL already known (unless --force).
+            if table_name != 'vessels' and url in known and not force:
+                continue
             # messages table in existing v2 catalog has GENERATED ALWAYS columns
             # for year/month/day — our Parquet has them as regular columns.
             ignore = 'true' if table_name == 'messages' else 'false'
+            # Reset vessels registration before re-adding (single overwritten file).
+            # Delete from metadata table directly — DELETE FROM ais_lake.vessels
+            # would try to read the data files first, which fails if they've
+            # already been overwritten (stale footer metadata).
+            if table_name == 'vessels' and url in known:
+                try:
+                    con.execute(
+                        "DELETE FROM __ducklake_metadata_ais_lake.ducklake_data_file "
+                        "WHERE table_id = (SELECT table_id FROM "
+                        "__ducklake_metadata_ais_lake.ducklake_table "
+                        "WHERE table_name = 'vessels')"
+                    )
+                except Exception:
+                    pass
             con.execute(
                 f"CALL ducklake_add_data_files('ais_lake', '{table_name}', "
                 f"'{url}', hive_partitioning={str(hive).lower()}, "
@@ -540,7 +586,8 @@ def _create_all_tables(con):
         """),
         ("vessel_tracks", """
             CREATE TABLE IF NOT EXISTS ais_lake.vessel_tracks (
-                mmsi INTEGER, ts INTEGER, lat INTEGER, lon INTEGER, date DATE
+                mmsi INTEGER, ts INTEGER, lat INTEGER, lon INTEGER,
+                heading INTEGER, date DATE
             )
         """),
         ("base_stations", """
@@ -599,15 +646,15 @@ def _create_all_tables(con):
 
 def _migrate_schema(con, tables: set | None = None):
     """Handle schema evolution for existing tables."""
-    # Clean up heading column if it was added by a previous migration
+    # Ensure heading column exists on vessel_tracks (added 2026-06-07)
     if tables is None or 'vessel_tracks' in tables:
         try:
             con.execute(
                 "ALTER TABLE ais_lake.vessel_tracks "
-                "DROP COLUMN IF EXISTS heading"
+                "ADD COLUMN IF NOT EXISTS heading INTEGER"
             )
         except Exception:
-            pass  # column may not exist or DuckLake may not support DROP
+            pass  # DuckLake may not support ALTER TABLE ADD COLUMN
 
 
 def _clean_partitions(con, target_date: datetime, tables: set | None = None):
@@ -631,6 +678,20 @@ def _clean_partitions(con, target_date: datetime, tables: set | None = None):
             print(f"   🗑️  {table_name}: partition {date_str} nettoyée")
         except Exception as e:
             print(f"   ⚠️ DELETE {table_name}: {e}")
+
+    # Vessels is non-partitioned — full reset on --force.
+    # Delete from metadata directly to avoid reading stale data files.
+    if (all_tables or 'vessels' in (tables or set())):
+        try:
+            con.execute(
+                "DELETE FROM __ducklake_metadata_ais_lake.ducklake_data_file "
+                "WHERE table_id = (SELECT table_id FROM "
+                "__ducklake_metadata_ais_lake.ducklake_table "
+                "WHERE table_name = 'vessels')"
+            )
+            print(f"   🗑️  vessels: full reset (non-partitioned)")
+        except Exception as e:
+            print(f"   ⚠️ DELETE vessels: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

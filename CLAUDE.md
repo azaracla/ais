@@ -68,7 +68,7 @@ python scripts/test_s3.py
 
 ### Frontend (`front/`)
 
-- **`src/duckdb.ts`**: Singleton DuckDB WASM initialization. Configures HTTP filesystem with `allowFullHTTPReads: false` and `reliableHeadRequests: true` (OVH S3 supports proper HEAD+Range). Attaches the remote DuckLake catalog via `ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v2/ais.ducklake'`. Exports `queryLastPositions()` (DISTINCT ON mmsi with spatial+time filters on `vessels_positions` + JOIN `vessels`) and `queryVesselHistory()` (reads `vessel_tracks` with integer coords, up to 3 days back). Streaming queries via `conn.send()`.
+- **`src/duckdb.ts`**: Singleton DuckDB WASM initialization. Configures HTTP filesystem with `allowFullHTTPReads: false` and `reliableHeadRequests: true` (OVH S3 supports proper HEAD+Range). Attaches the remote DuckLake catalog via `ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake'`. Exports `queryLastPositions()` (DISTINCT ON mmsi with spatial+time filters on `vessels_positions` + JOIN `vessels`) and `queryVesselHistory()` (reads `vessel_tracks` with integer coords, up to 3 days back). Streaming queries via `conn.send()`.
 
 - **`src/useVessels.ts`**: React hook managing DuckDB init, debounced viewport-based queries, and accumulated results. Expands bounds by √3 factor to preload data outside viewport.
 
@@ -108,9 +108,10 @@ ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake' AS ais
 
 **Important** :
 - Toujours `OVERRIDE_DATA_PATH true` — le catalog stocke le DATA_PATH d'origine (peut être `s3://`), le client lit en HTTPS public.
-- `SET enable_http_metadata_cache=false` si le catalog est mis à jour fréquemment, sinon HTTP 416 sur les fichiers ré-uploadés avec un footer différent.
+- `SET enable_http_metadata_cache=false` en WASM évite que DuckDB cache les tailles de fichier (HEAD `Content-Length`) entre deux requêtes. Sans ça, si le catalog est mis à jour entre-temps, DuckDB utilise une taille obsolète pour calculer les Range requests → footer mismatch.
 - Le DATA_PATH doit pointer vers le dossier parent des fichiers Parquet (Hive partitioning).
-- `ais.ducklake` = metadata catalog, `ais.ducklake.files/` = dossier contenant les `.parquet`.
+- `ais.ducklake` = metadata catalog, `ais.ducklake.files/` = dossier contenant les `.parquet` (sous-dossiers `gold/` et `silver/`).
+- **CORS OVH S3** : ne pas utiliser `AllowedOrigins: ["*"]` car OVH ajoute `Access-Control-Allow-Credentials: true` automatiquement, combinaison invalide rejetée par les navigateurs. Utiliser des origines spécifiques (`https://azaracla.github.io`, `http://localhost:5173`, etc.).
 
 ### Read-write (pipeline Python)
 
@@ -139,6 +140,32 @@ con.execute(f"""
 - Le DATA_PATH du catalog est **stocké dans le fichier** `ais.ducklake`. Si le pipeline écrit avec `s3://` et le frontend lit en `https://`, le catalog doit avoir `https://` comme DATA_PATH. Le `pipeline.py` utilise `OVERRIDE_DATA_PATH true` à l'attach pour forcer `s3://` en écriture, mais le DATA_PATH stocké reste celui du catalog.
 - Pour que les clients HTTPS fonctionnent, le `pipeline.py` stocke `https_data_path` dans le catalog initial (`is_new`). Les updates suivants utilisent `s3_data_path` en session mais préservent le `https_data_path` stocké.
 - `AUTOMATIC_MIGRATION true` seulement au premier attach — permet à DuckLake d'ajouter les colonnes manquantes dans le schéma du catalog.
+
+### Lecture Parquet over HTTP : piège du footer et tailles de fichier
+
+DuckDB lit les fichiers Parquet distants en 3 étapes :
+1. **HEAD** → récupère `Content-Length` (taille du fichier)
+2. **Range request** pour les derniers ~64 KB → lit le footer Parquet (métadonnées, offsets des row groups)
+3. **Range requests** ciblés → lit les row groups nécessaires pour la query
+
+Le footer d'un fichier Parquet se termine toujours par 8 bytes : 4 bytes de footer length + `PAR1`. DuckDB utilise la taille du fichier (étape 1) pour calculer l'offset du footer. Si la taille est incorrecte, ne serait-ce que d'**1 byte**, le Range request de l'étape 2 lit au mauvais endroit → `No magic bytes found at end of file` ou `Parquet footer length stored in file is not equal to footer length provided`.
+
+**Piège catalogue** : le pipeline écrit les fichiers Parquet en local, puis les upload sur S3, puis enregistre les métadonnées dans le catalog DuckLake via `ducklake_add_data_files`. Si les tailles de fichier stockées dans le catalog (provenant des fichiers locaux) diffèrent des tailles réelles sur S3 (provenant de `Content-Length`), le client WASM/CLI qui lit le catalog reçoit des erreurs footer.
+
+OVH S3 peut modifier légèrement la taille des fichiers lors de l'upload (typiquement +1 à +4 bytes sur des fichiers de 100+ MB, probablement dû au padding des uploads multipart). Les petits fichiers (<10 MB) ne semblent pas affectés.
+
+** Symptômes ** :
+- `SELECT COUNT(*)` sur une table DuckLake fonctionne (lit uniquement les métadonnées du catalog)
+- `SELECT *` ou toute query qui lit les données réelles échoue avec `No magic bytes` ou `footer length mismatch`
+- Les fichiers sont valides (lus directement via `read_parquet('https://...')` ils fonctionnent)
+- Seuls les gros fichiers (>100 MB) sont touchés (la différence de taille est proportionnelle ?)
+
+**Vérification** : comparer `file_size_bytes` dans `ducklake_data_file` avec le `Content-Length` réel :
+```bash
+curl -sI <url_parquet> | grep content-length
+```
+
+**Fix** : re-run le pipeline avec `--force` pour la date affectée. Les nouveaux fichiers uploadés auront des tailles cohérentes dans le catalog. Si le `DELETE` de l'ancienne partition échoue (à cause du footer illisible), supprimer manuellement l'entrée obsolète dans `ducklake_data_file` + `ducklake_file_column_stats` + `ducklake_file_partition_value`.
 
 ### Nettoyage complet du catalog v3 distant
 

@@ -33,9 +33,10 @@ COPY (
         epoch(ts)::INTEGER                         AS ts,
         CAST(ROUND(lat * 1e5) AS INTEGER)          AS lat,
         CAST(ROUND(lon * 1e5) AS INTEGER)          AS lon,
+        CAST(ROUND(COALESCE(cog, true_heading)) AS INTEGER) AS heading,
         CAST(ts AS DATE)                           AS date
     FROM (
-        SELECT mmsi, ts, lat, lon,
+        SELECT mmsi, ts, lat, lon, cog, true_heading,
                epoch(ts)::INTEGER // 600 AS _bucket,
                ROW_NUMBER() OVER (
                    PARTITION BY mmsi, epoch(ts)::INTEGER // 600
