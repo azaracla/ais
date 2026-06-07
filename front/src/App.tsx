@@ -1,5 +1,6 @@
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useRef, useEffect, useState } from "react";
+import "./style.css";
+import { useRef, useEffect, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
 import { useVessels } from "./useVessels";
 import { queryVesselHistory, cancelQuery } from "./duckdb";
@@ -17,41 +18,204 @@ const VESSEL_META = [
   { key: "pleasure", color: "#a855f7", label: "Pleasure" },
 ];
 
-function addTriangleIcons(map: maplibregl.Map) {
-  for (const m of VESSEL_META) {
-    const id = `triangle-${m.key}`;
-    if (map.hasImage(id)) continue;
-    const size = 16;
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d")!;
-    ctx.translate(size / 2, size / 2);
-    ctx.beginPath();
-    ctx.moveTo(0, -size / 2 + 1);
-    ctx.lineTo(-size / 2 + 2, size / 2 - 1);
-    ctx.lineTo(size / 2 - 2, size / 2 - 1);
-    ctx.closePath();
-    ctx.fillStyle = m.color;
-    ctx.fill();
-    ctx.strokeStyle = "rgba(0,0,0,0.35)";
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-    map.addImage(id, ctx.getImageData(0, 0, size, size));
-  }
+const BASEMAP_LIGHT = {
+  version: 8 as const,
+  sources: {
+    basemap: {
+      type: "raster" as const,
+      tiles: [
+        "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+        "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+        "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+        "https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+      ],
+      tileSize: 256,
+      attribution:
+        '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://openstreetmap.org">OSM</a>',
+    },
+  },
+  layers: [{ id: "basemap", type: "raster" as const, source: "basemap" }],
+};
+
+const BASEMAP_DARK = {
+  version: 8 as const,
+  sources: {
+    basemap: {
+      type: "raster" as const,
+      tiles: [
+        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+        "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+      ],
+      tileSize: 256,
+      attribution:
+        '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://openstreetmap.org">OSM</a>',
+    },
+  },
+  layers: [{ id: "basemap", type: "raster" as const, source: "basemap" }],
+};
+
+/* ── Ship-shaped vessel icons ─────────── */
+
+function drawShipIcon(
+  color: string,
+  size: number,
+  theme: "light" | "dark",
+): ImageData {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const cx = size / 2;
+  const cy = size / 2;
+  const s = size; // use full canvas
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Glow
+  const glow = ctx.createRadialGradient(0, 0, s * 0.08, 0, 0, s * 0.55);
+  const glowAlpha = theme === "dark" ? 0.35 : 0.18;
+  glow.addColorStop(0, color + Math.round(glowAlpha * 255).toString(16).padStart(2, "0"));
+  glow.addColorStop(1, "transparent");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(0, 0, s * 0.55, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hull — elongated ellipse pointing up (heading = up on canvas)
+  const hullLen = s * 0.4;
+  const hullW = s * 0.22;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(0, s * 0.06, hullW, hullLen, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Bow point (nose at top)
+  ctx.beginPath();
+  ctx.moveTo(0, -(s * 0.44));
+  ctx.lineTo(-hullW * 0.5, -(hullLen * 0.4));
+  ctx.lineTo(hullW * 0.5, -(hullLen * 0.4));
+  ctx.closePath();
+  ctx.fill();
+
+  // Superstructure (bridge)
+  ctx.fillStyle = lightenColor(color, 0.25);
+  ctx.beginPath();
+  ctx.roundRect(-hullW * 0.45, -hullLen * 0.5, hullW * 0.9, hullLen * 0.55, s * 0.08);
+  ctx.fill();
+
+  // Mast (vertical line)
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, s * 0.06);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(0, -s * 0.44);
+  ctx.lineTo(0, -s * 0.48);
+  ctx.stroke();
+
+  // Outline for definition
+  ctx.strokeStyle = theme === "dark" ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.ellipse(0, s * 0.06, hullW, hullLen, 0, 0, Math.PI * 2);
+  ctx.moveTo(0, -(s * 0.44));
+  ctx.lineTo(-hullW * 0.5, -(hullLen * 0.4));
+  ctx.lineTo(hullW * 0.5, -(hullLen * 0.4));
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.restore();
+  return ctx.getImageData(0, 0, size, size);
+}
+
+function lightenColor(hex: string, amount: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const lr = Math.min(255, Math.round(r + (255 - r) * amount));
+  const lg = Math.min(255, Math.round(g + (255 - g) * amount));
+  const lb = Math.min(255, Math.round(b + (255 - b) * amount));
+  return `rgb(${lr},${lg},${lb})`;
+}
+
+const ICON_SIZE = 22;
+const ARROW_SIZE = 10;
+
+/* ── Bearing between two coordinates ───── */
+function bearing(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x =
+    Math.cos(φ1) * Math.sin(φ2) -
+    Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/* ── Arrow icon for trajectory direction ── */
+function makeArrowIcon(color: string): ImageData {
+  const s = ARROW_SIZE;
+  const canvas = document.createElement("canvas");
+  canvas.width = s;
+  canvas.height = s;
+  const ctx = canvas.getContext("2d")!;
+  const cx = s / 2;
+  const cy = s / 2;
+
+  // Arrow pointing up (0° = north)
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s * 0.45);          // tip
+  ctx.lineTo(cx + s * 0.4, cy + s * 0.45); // bottom-right
+  ctx.lineTo(cx + s * 0.12, cy + s * 0.15);
+  ctx.lineTo(cx - s * 0.12, cy + s * 0.15);
+  ctx.lineTo(cx - s * 0.4, cy + s * 0.45); // bottom-left
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.lineWidth = 0.6;
+  ctx.stroke();
+
+  return ctx.getImageData(0, 0, s, s);
 }
 
 function iconImageExpr(): maplibregl.DataDrivenPropertyValueSpecification<string> {
   const cases: (string | maplibregl.Expression)[] = [];
   for (const m of VESSEL_META) {
     cases.push(m.key);
-    cases.push(`triangle-${m.key}`);
+    cases.push(`ship-${m.key}`);
   }
-  cases.push("triangle-cargo");
+  cases.push("ship-cargo");
   return ["match", ["get", "shipType"], ...cases] as any;
 }
 
-const DEFAULT_DATE = "2026-05-29T06:00:00.000Z";
+/* ── Theme helpers ─────────────────────── */
+
+function getInitialTheme(): "light" | "dark" {
+  try {
+    const stored = localStorage.getItem("ais-theme");
+    if (stored === "dark" || stored === "light") return stored;
+  } catch {
+    /* localStorage unavailable — use default */
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+/* ── App ──────────────────────────────── */
+
+function getYesterdayNoon(): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return `${d.toISOString().slice(0, 10)}T12:00:00.000Z`;
+}
+
+const DEFAULT_DATE = getYesterdayNoon();
 
 export default function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -60,6 +224,11 @@ export default function App() {
   const sceneAcqTsRef = useRef<number | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const trajectoryGenRef = useRef(0);
+  const [mapVisible, setMapVisible] = useState(false);
+
+  const [theme, setTheme] = useState<"light" | "dark">(getInitialTheme);
+  const themeRef = useRef(theme);
+  useEffect(() => { themeRef.current = theme; }, [theme]);
 
   const [date, setDate] = useState(DEFAULT_DATE);
   const dateRef = useRef(date);
@@ -76,62 +245,88 @@ export default function App() {
   const satBounds = drawBounds ?? bounds;
   const sat = useSatellite(sensor, satBounds, satDate);
 
-  // Initialize map once
+  // Show map when DuckDB is ready, hide splash
+  useEffect(() => {
+    if (!ready) return;
+    setMapVisible(true);
+    // Notify splash screen
+    const splash = document.getElementById("splash");
+    if (splash) {
+      splash.classList.add("fade-out");
+      setTimeout(() => splash.remove(), 500);
+    }
+  }, [ready]);
+
+  // Persist theme
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem("ais-theme", theme); } catch {}
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === "light" ? "dark" : "light"));
+  }, []);
+
+  // Initialize map
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: {
-        version: 8,
-        sources: {
-          basemap: {
-            type: "raster",
-            tiles: [
-              "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-              "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-              "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-              "https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-            ],
-            tileSize: 256,
-            attribution:
-              '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://openstreetmap.org">OSM</a>',
-          },
-        },
-        layers: [{ id: "basemap", type: "raster", source: "basemap" }],
-      },
+      style: theme === "dark" ? BASEMAP_DARK : BASEMAP_LIGHT,
       center: [3.1, 41.7],
       zoom: 4,
-      // maxBounds: [[-20, 25], [45, 65]],
       attributionControl: false,
     });
 
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
-    map.addControl(new maplibregl.ScaleControl({ unit: "metric", maxWidth: 200 }), "bottom-right");
+    map.addControl(
+      new maplibregl.NavigationControl(),
+      "top-right",
+    );
+    map.addControl(
+      new maplibregl.ScaleControl({ unit: "metric", maxWidth: 200 }),
+      "bottom-right",
+    );
 
     function initLayers(m: maplibregl.Map) {
-      addTriangleIcons(m);
-      if (m.getSource("vessels")) return;
-      m.addSource("vessels", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      m.addLayer({
-        id: "vessel-point",
-        type: "symbol",
-        source: "vessels",
-        layout: {
-          "icon-image": iconImageExpr(),
-          "icon-rotate": ["get", "heading"],
-          "icon-rotation-alignment": "map",
-          "icon-allow-overlap": true,
-          "icon-ignore-placement": true,
-          "icon-size": 0.55,
-        },
-      });
-      // Close popup + overlays when clicking off a vessel
+      // Register ship icons for current theme
+      for (const meta of VESSEL_META) {
+        const id = `ship-${meta.key}`;
+        if (m.hasImage(id)) m.removeImage(id);
+        m.addImage(id, drawShipIcon(meta.color, ICON_SIZE, themeRef.current));
+      }
+
+      if (!m.getSource("vessels")) {
+        m.addSource("vessels", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+        m.addLayer({
+          id: "vessel-point",
+          type: "symbol",
+          source: "vessels",
+          layout: {
+            "icon-image": iconImageExpr(),
+            "icon-rotate": ["get", "heading"],
+            "icon-rotation-alignment": "map",
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
+            "icon-size": 0.65,
+          },
+          paint: {
+            "icon-opacity": 0.9,
+            "icon-opacity-transition": { duration: 300 },
+          },
+        });
+      }
+
+      // Click off vessel → close popup
       m.on("click", (e) => {
-        if (m.queryRenderedFeatures(e.point, { layers: ["vessel-point"] }).length > 0) return;
+        if (
+          m.queryRenderedFeatures(e.point, { layers: ["vessel-point"] }).length >
+          0
+        )
+          return;
         popupRef.current?.remove();
         popupRef.current = null;
         clearVesselOverlays(m);
@@ -144,61 +339,132 @@ export default function App() {
         });
       }
 
-      // Source + layer for vessel search radius
+      // Search radius source + layer
       m.addSource("vessel-radius", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      m.addLayer({
-        id: "vessel-radius-layer",
-        type: "circle",
-        source: "vessel-radius",
-        paint: {
-          "circle-radius": [
-            "interpolate", ["exponential", 2], ["zoom"],
-            0, ["*", ["get", "searchRadius"], 0.000009],
-            10, ["*", ["get", "searchRadius"], 0.009],
-            20, ["*", ["get", "searchRadius"], 9.5],
-          ],
-          "circle-color": "#6366f1",
-          "circle-opacity": 0.12,
-          "circle-stroke-color": "#6366f1",
-          "circle-stroke-width": 0.5,
-          "circle-stroke-opacity": 0.3,
+      m.addLayer(
+        {
+          id: "vessel-radius-layer",
+          type: "circle",
+          source: "vessel-radius",
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["exponential", 2],
+              ["zoom"],
+              0,
+              ["*", ["get", "searchRadius"], 0.000009],
+              10,
+              ["*", ["get", "searchRadius"], 0.009],
+              20,
+              ["*", ["get", "searchRadius"], 9.5],
+            ],
+            "circle-color": "#6366f1",
+            "circle-opacity": 0.12,
+            "circle-stroke-color": "#6366f1",
+            "circle-stroke-width": 0.5,
+            "circle-stroke-opacity": 0.3,
+          },
         },
-      }, "vessel-point");
+        "vessel-point",
+      );
 
-      // Trajectory source + layers (line + dots)
+      // Trajectory source + layers
       m.addSource("vessel-trajectory", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      m.addLayer({
-        id: "vt-line",
-        type: "line",
-        source: "vessel-trajectory",
-        filter: ["==", ["geometry-type"], "LineString"],
-        paint: {
-          "line-color": ["get", "color"],
-          "line-width": 2,
-          "line-dasharray": [4, 3],
-          "line-opacity": 0.7,
+      m.addLayer(
+        {
+          id: "vt-line",
+          type: "line",
+          source: "vessel-trajectory",
+          filter: ["==", ["geometry-type"], "LineString"],
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 2,
+            "line-dasharray": [4, 3],
+            "line-opacity": 0.7,
+          },
         },
-      }, "vessel-point");
-      m.addLayer({
-        id: "vt-points",
-        type: "circle",
-        source: "vessel-trajectory",
-        filter: ["==", ["geometry-type"], "Point"],
-        paint: {
-          "circle-radius": 5,
-          "circle-color": ["get", "color"],
-          "circle-opacity": 1,
-          "circle-stroke-color": "#fff",
-          "circle-stroke-width": 1.5,
+        "vessel-point",
+      );
+      m.addLayer(
+        {
+          id: "vt-points",
+          type: "circle",
+          source: "vessel-trajectory",
+          filter: ["==", ["geometry-type"], "Point"],
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              0,
+              2,
+              6,
+              4,
+              14,
+              6,
+            ],
+            "circle-color": ["get", "color"],
+            "circle-opacity": 1,
+            "circle-stroke-color": "#fff",
+            "circle-stroke-width": 1.5,
+          },
         },
-      }, "vessel-point");
+        "vessel-point",
+      );
 
+      // Arrow layer for trajectory direction
+      const arrowId = "traj-arrow";
+      if (!m.hasImage(arrowId)) {
+        m.addImage(arrowId, makeArrowIcon("#ffffff"));
+      }
+      m.addLayer({
+        id: "vt-arrows",
+        type: "symbol",
+        source: "vessel-trajectory",
+        filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "bearing"]],
+        layout: {
+          "icon-image": arrowId,
+          "icon-rotate": ["get", "bearing"],
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-size": 0.8,
+        },
+        paint: {
+          "icon-opacity": 0.85,
+        },
+      }, "vt-points");
+
+      // Trajectory point hover: show time
+      const trajPopup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 8,
+        className: "traj-tooltip",
+      });
+      m.on("mousemove", "vt-points", (e) => {
+        const f = e.features?.[0];
+        if (!f?.properties?.ts) return;
+        m.getCanvas().style.cursor = "crosshair";
+        trajPopup
+          .setLngLat(e.lngLat)
+          .setHTML(
+            `<span class="traj-tooltip-text">${formatTrajTime(f.properties.ts)}</span>`,
+          )
+          .addTo(m);
+      });
+      m.on("mouseleave", "vt-points", () => {
+        trajPopup.remove();
+        m.getCanvas().style.cursor = "";
+      });
+
+      // Vessel click: popup + radius + trajectory
       m.on("click", "vessel-point", async (e) => {
         const f = e.features?.[0];
         if (!f) return;
@@ -207,77 +473,135 @@ export default function App() {
 
         const mmsi = p.id as number | undefined;
         const shipType = p.shipType as string | undefined;
-        const color = VESSEL_META.find((m) => m.key === shipType)?.color ?? "#888";
-        const trajSource = m.getSource("vessel-trajectory") as maplibregl.GeoJSONSource | undefined;
+        const meta = VESSEL_META.find((m) => m.key === shipType);
+        const color = meta?.color ?? "#888";
+        const trajSource = m.getSource(
+          "vessel-trajectory",
+        ) as maplibregl.GeoJSONSource | undefined;
 
-        // Close previous popup
         popupRef.current?.remove();
         popupRef.current = null;
 
-        // Draw search radius around this vessel
+        // Search radius
         const acqTs = sceneAcqTsRef.current;
         const vesselTs = p.ts ? new Date(p.ts).getTime() : null;
-        const radiusSource = m.getSource("vessel-radius") as maplibregl.GeoJSONSource | undefined;
+        const radiusSource = m.getSource(
+          "vessel-radius",
+        ) as maplibregl.GeoJSONSource | undefined;
         if (acqTs && vesselTs && Number(p.speed) > 0 && radiusSource) {
           const timeDiffSec = Math.abs(acqTs - vesselTs) / 1000;
           const radiusMeters = Number(p.speed) * 0.514444 * timeDiffSec;
           radiusSource.setData({
             type: "FeatureCollection",
-            features: [{
-              type: "Feature",
-              geometry: f.geometry,
-              properties: { searchRadius: radiusMeters },
-            }],
+            features: [
+              {
+                type: "Feature",
+                geometry: f.geometry,
+                properties: { searchRadius: radiusMeters },
+              },
+            ],
           });
         }
 
-        // Fetch trajectory asynchronously
+        // Trajectory
         const gen = ++trajectoryGenRef.current;
         if (mmsi && p.ts && trajSource) {
           await cancelQuery();
-          queryVesselHistory(mmsi, p.ts).then((positions) => {
-            if (gen !== trajectoryGenRef.current || !trajSource) return;
-            if (positions.length < 2) return;
-            const coords: [number, number][] = positions.map((pt) => [pt.lng, pt.lat]);
-            const points: GeoJSON.Feature[] = positions.map((pt) => ({
-              type: "Feature",
-              geometry: { type: "Point", coordinates: [pt.lng, pt.lat] },
-              properties: { color },
-            }));
-            const line: GeoJSON.Feature = {
-              type: "Feature",
-              geometry: { type: "LineString", coordinates: coords },
-              properties: { color },
-            };
-            trajSource.setData({
-              type: "FeatureCollection",
-              features: [line, ...points],
+          queryVesselHistory(mmsi, p.ts)
+            .then((positions) => {
+              if (gen !== trajectoryGenRef.current || !trajSource) return;
+              // Update loading indicator in popup
+              const statusEl = popupRef.current
+                ?.getElement()
+                ?.querySelector(".traj-status");
+              if (statusEl) {
+                statusEl.textContent =
+                  positions.length >= 2
+                    ? `${positions.length} track points`
+                    : "No track data";
+                statusEl.className = "traj-status traj-status-done";
+              }
+              if (positions.length < 2) return;
+              const coords: [number, number][] = positions.map((pt) => [
+                pt.lng,
+                pt.lat,
+              ]);
+              const points: GeoJSON.Feature[] = positions.map((pt, i) => {
+                const props: Record<string, unknown> = {
+                  color,
+                  ts: pt.ts instanceof Date ? pt.ts.toISOString() : String(pt.ts),
+                };
+                // Use stored heading when available, else compute bearing to next point
+                if (pt.heading != null) {
+                  props.bearing = pt.heading;
+                } else if (i < positions.length - 1) {
+                  const next = positions[i + 1];
+                  props.bearing = bearing(pt.lat, pt.lng, next.lat, next.lng);
+                }
+                return {
+                  type: "Feature" as const,
+                  geometry: {
+                    type: "Point" as const,
+                    coordinates: [pt.lng, pt.lat] as [number, number],
+                  },
+                  properties: props,
+                };
+              });
+              const line: GeoJSON.Feature = {
+                type: "Feature",
+                geometry: { type: "LineString", coordinates: coords },
+                properties: { color },
+              };
+              trajSource.setData({
+                type: "FeatureCollection",
+                features: [line, ...points],
+              });
+            })
+            .catch(() => {
+              const statusEl = popupRef.current
+                ?.getElement()
+                ?.querySelector(".traj-status");
+              if (statusEl) {
+                statusEl.textContent = "Track unavailable";
+                statusEl.className = "traj-status traj-status-error";
+              }
             });
-          }).catch(() => {});
         }
 
-        const popup = new maplibregl.Popup({ offset: 10 })
+        // Popup
+        const popup = new maplibregl.Popup({ offset: 10, maxWidth: "260px" })
           .setLngLat((f.geometry as any).coordinates)
-          .setHTML(`
-            <div style="font:13px system-ui;">
-              <b style="font-size:15px">${p.name}</b>
-              <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin-top:6px">
-                <span style="color:#666">Type</span><span style="text-transform:capitalize">${p.shipType}</span>
-                <span style="color:#666">Speed</span><span>${Number(p.speed).toFixed(1)} kn</span>
-                <span style="color:#666">Heading</span><span>${p.heading}°</span>
-                ${p.destination ? `<span style="color:#666">To</span><span>${p.destination}</span>` : ""}
-                ${p.ts ? `<span style="color:#666">AIS at</span><span>${new Date(p.ts).toISOString().slice(0, 19).replace("T", " ")} UTC</span>` : ""}
-              </div>
-            </div>`)
+          .setHTML(
+            `<div class="popup-header">
+              <span class="popup-color-bar" style="background:${color}"></span>
+              ${escapeHtml(p.name)}
+            </div>
+            <div class="popup-body">
+              <span class="popup-field-label">Type</span>
+              <span class="popup-field-value" style="text-transform:capitalize">${escapeHtml(p.shipType)}</span>
+              <span class="popup-field-label">Speed</span>
+              <span class="popup-field-value">${Number(p.speed).toFixed(1)} kn</span>
+              <span class="popup-field-label">Heading</span>
+              <span class="popup-field-value">${p.heading}°</span>
+              ${p.destination ? `<span class="popup-field-label">Destination</span><span class="popup-field-value">${escapeHtml(p.destination)}</span>` : ""}
+              ${p.ts ? `<span class="popup-field-label">AIS time</span><span class="popup-field-value mono">${new Date(p.ts).toISOString().slice(0, 19).replace("T", " ")} UTC</span>` : ""}
+              <div class="traj-status"><span class="spinner-sm"></span> Loading track…</div>
+            </div>`,
+          )
           .addTo(m);
 
         popup.on("close", () => clearVesselOverlays(m));
-
         popupRef.current = popup;
       });
-      m.on("mouseenter", "vessel-point", () => { m.getCanvas().style.cursor = "pointer"; });
-      m.on("mouseleave", "vessel-point", () => { m.getCanvas().style.cursor = ""; });
-      setSourceReady(true);
+
+      m.on("mouseenter", "vessel-point", () => {
+        m.getCanvas().style.cursor = "pointer";
+      });
+      m.on("mouseleave", "vessel-point", () => {
+        m.getCanvas().style.cursor = "";
+      });
+
+      if (!sourceReady) setSourceReady(true);
     }
 
     map.on("load", () => {
@@ -299,33 +623,53 @@ export default function App() {
     map.on("zoomend", updateBounds);
 
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; };
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Update vessel data on the map when they change
+  // Switch basemap when theme changes
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+
+    const newStyle = theme === "dark" ? BASEMAP_DARK : BASEMAP_LIGHT;
+    // Re-register ship icons for new theme after style changes
+    map.setStyle(newStyle, { diff: false });
+    map.once("style.load", () => {
+      for (const meta of VESSEL_META) {
+        const id = `ship-${meta.key}`;
+        if (map.hasImage(id)) map.removeImage(id);
+        map.addImage(id, drawShipIcon(meta.color, ICON_SIZE, theme));
+      }
+      setSourceReady(true);
+    });
+  }, [theme]);
+
+  // Update vessel data on map
   const prevVesselsRef = useRef(vessels);
   useEffect(() => {
     if (!sourceReady || vessels === prevVesselsRef.current) return;
     prevVesselsRef.current = vessels;
 
     const map = mapRef.current;
-    const source = map?.getSource("vessels") as maplibregl.GeoJSONSource | undefined;
+    const source = map?.getSource("vessels") as
+      | maplibregl.GeoJSONSource
+      | undefined;
     if (source) {
       source.setData(vesselsToGeoJSON(vessels));
     }
-  }, [vessels]);
+  }, [vessels, sourceReady]);
 
   // Satellite tile layer
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourceReady) return;
 
-    if (map.getLayer("satellite-layer")) {
-      map.removeLayer("satellite-layer");
-    }
-    if (map.getSource("satellite")) {
-      map.removeSource("satellite");
-    }
+    if (map.getLayer("satellite-layer")) map.removeLayer("satellite-layer");
+    if (map.getSource("satellite")) map.removeSource("satellite");
 
     if (sat.tileUrl && !scenesOnly) {
       map.addSource("satellite", {
@@ -340,53 +684,77 @@ export default function App() {
     }
   }, [sat.tileUrl, sourceReady, scenesOnly]);
 
-  // Keep latest scene acquisition timestamp in a ref for vessel radius.
-  // Fallback: use satDate as scene time (midnight) when no scenes loaded.
+  // Scene acquisition timestamp
   useEffect(() => {
     if (sat.scenes && sat.scenes.features.length > 0) {
       const times = sat.scenes.features
         .map((f) => f.properties?.acquisition_time)
         .filter(Boolean) as string[];
-      sceneAcqTsRef.current = times.length > 0
-        ? new Date(times.sort().pop()!).getTime() : null;
+      sceneAcqTsRef.current =
+        times.length > 0
+          ? new Date(times.sort().pop()!).getTime()
+          : null;
     } else if (sensor) {
-      sceneAcqTsRef.current = new Date(satDate + "T12:00:00Z").getTime();
+      sceneAcqTsRef.current = new Date(
+        satDate + "T12:00:00Z",
+      ).getTime();
     } else {
       sceneAcqTsRef.current = null;
     }
   }, [sat.scenes, sensor, satDate]);
 
-  // Satellite scene footprints
+  // Scene footprints
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourceReady) return;
 
-    const layers = ["scene-fill", "scene-outline"];
-    layers.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
+    ["scene-fill", "scene-outline"].forEach((id) => {
+      if (map.getLayer(id)) map.removeLayer(id);
+    });
     if (map.getSource("scenes")) map.removeSource("scenes");
 
     if (sat.scenes && sat.scenes.features.length > 0) {
       map.addSource("scenes", { type: "geojson", data: sat.scenes });
-      map.addLayer({
-        id: "scene-fill",
-        type: "fill",
-        source: "scenes",
-        paint: { "fill-color": "#fbbf24", "fill-opacity": 0.08 },
-      }, "vessel-radius-layer");
-      map.addLayer({
-        id: "scene-outline",
-        type: "line",
-        source: "scenes",
-        paint: { "line-color": "#fbbf24", "line-width": 1, "line-dasharray": [3, 2] },
-      }, "vessel-radius-layer");
+      map.addLayer(
+        {
+          id: "scene-fill",
+          type: "fill",
+          source: "scenes",
+          paint: {
+            "fill-color": "#fbbf24",
+            "fill-opacity": 0.08,
+          },
+        },
+        "vessel-radius-layer",
+      );
+      map.addLayer(
+        {
+          id: "scene-outline",
+          type: "line",
+          source: "scenes",
+          paint: {
+            "line-color": "#fbbf24",
+            "line-width": 1,
+            "line-dasharray": [3, 2],
+          },
+        },
+        "vessel-radius-layer",
+      );
 
-      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10 });
+      const popup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 10,
+      });
       map.on("mousemove", "scene-fill", (e) => {
         const f = e.features?.[0];
         if (!f?.properties) return;
         map.getCanvas().style.cursor = "default";
-        popup.setLngLat(e.lngLat)
-          .setHTML(`<span style="font:11px system-ui;color:#333">${f.properties.acquisition_time}</span>`)
+        popup
+          .setLngLat(e.lngLat)
+          .setHTML(
+            `<span style="font:11px system-ui;color:var(--color-text)">${f.properties.acquisition_time}</span>`,
+          )
           .addTo(map);
       });
       map.on("mouseleave", "scene-fill", () => {
@@ -397,55 +765,46 @@ export default function App() {
   }, [sat.scenes, sourceReady]);
 
   return (
-    <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
-      <div ref={mapContainer} style={{ width: "100%", height: "100%" }} />
+    <div className={`map-wrap${mapVisible ? " visible" : ""}`}>
+      <div ref={mapContainer} className="map-container" />
+
+      {/* Theme toggle */}
+      <button
+        className="panel panel-sm theme-toggle"
+        onClick={toggleTheme}
+        title={theme === "dark" ? "Light mode" : "Dark mode"}
+        aria-label="Toggle theme"
+      >
+        {theme === "dark" ? "☀️" : "🌙"}
+      </button>
 
       {/* Top bar */}
-      <div style={{
-        position: "absolute", top: 12, left: 12, right: 12,
-        display: "flex", gap: 12, alignItems: "center",
-      }}>
-        <div style={{
-          background: "rgba(255,255,255,0.95)", padding: "8px 14px",
-          borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-          font: "13px system-ui", display: "flex", gap: 10, alignItems: "center",
-        }}>
-          <label style={{ fontWeight: 600 }}>Date (UTC)</label>
+      <div className="top-bar">
+        <div className="panel panel-md control-group">
+          <label className="control-label">Date (UTC)</label>
           <input
             type="datetime-local"
+            className="input-text"
             value={date.slice(0, 16)}
-            onChange={(e) => setDate(new Date(e.target.value + "Z").toISOString())}
-            style={{ font: "13px system-ui", border: "1px solid #ccc", borderRadius: 4, padding: "3px 6px" }}
+            onChange={(e) =>
+              setDate(new Date(e.target.value + "Z").toISOString())
+            }
           />
         </div>
 
-        <div style={{
-          background: "rgba(255,255,255,0.95)", padding: "8px 14px",
-          borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-          font: "13px system-ui", display: "flex", gap: 6, alignItems: "center",
-        }}>
-          <span style={{ fontWeight: 600, marginRight: 2 }}>Draw</span>
+        <div className="panel panel-md control-group">
+          <span className="control-label">Draw</span>
           <button
+            className={`btn${mode === "drawing" ? " btn-active" : ""}`}
             onClick={startDraw}
             disabled={mode === "drawing"}
-            style={{
-              padding: "4px 10px", borderRadius: 4, border: "1px solid #ccc",
-              cursor: mode === "drawing" ? "default" : "pointer", fontSize: 12,
-              background: mode === "drawing" ? "#6366f1" : "#fff",
-              color: mode === "drawing" ? "#fff" : "#333",
-              fontWeight: mode === "drawing" ? 600 : 400,
-            }}
           >
             {mode === "drawing" ? "Click 2 corners" : "Rectangle"}
           </button>
           <button
+            className="btn"
             onClick={clear}
             disabled={!drawBounds && mode !== "drawing"}
-            style={{
-              padding: "4px 10px", borderRadius: 4, border: "1px solid #ccc",
-              cursor: (!drawBounds && mode !== "drawing") ? "default" : "pointer",
-              fontSize: 12, background: "#fff", color: "#333",
-            }}
           >
             Clear
           </button>
@@ -453,7 +812,10 @@ export default function App() {
 
         <SatelliteControls
           active={sensor}
-          onSensorChange={(s) => { setSensor(s); setSatManualDate(null); }}
+          onSensorChange={(s) => {
+            setSensor(s);
+            setSatManualDate(null);
+          }}
           date={satManualDate}
           onDateChange={setSatManualDate}
           sat={sat}
@@ -463,72 +825,64 @@ export default function App() {
         />
 
         {!ready && (
-          <div style={{
-            background: "rgba(255,255,255,0.95)", padding: "8px 14px",
-            borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-            font: "13px system-ui", color: "#888",
-          }}>
+          <div className="panel panel-md badge badge-info">
+            <span className="spinner-sm" />
             Initializing DuckDB...
           </div>
         )}
 
         {loading && (
-          <div style={{
-            background: "rgba(255,255,255,0.95)", padding: "8px 14px",
-            borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-            font: "13px system-ui", color: "#6366f1",
-          }}>
+          <div className="panel panel-md badge badge-loading">
+            <span className="spinner-sm" />
             Loading...
           </div>
         )}
 
         {error && (
-          <div style={{
-            background: "rgba(255,255,255,0.95)", padding: "8px 14px",
-            borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-            font: "13px system-ui", color: "#ef4444",
-          }}>
-            {error}
-          </div>
+          <div className="panel panel-md badge badge-error">{error}</div>
         )}
       </div>
 
       {/* Acquisition time badge */}
       {sensor && sat.acquisitionTime && (
-        <div style={{
-          position: "absolute", bottom: 28, left: 12,
-          background: "rgba(0,0,0,0.55)", padding: "4px 10px",
-          borderRadius: 6, font: "11px system-ui", color: "#fff",
-          pointerEvents: "none",
-        }}>
-          {sensor === "S1" ? "Sentinel-1" : "Sentinel-2"} · {sat.acquisitionTime}
+        <div className="acq-badge">
+          {sensor === "S1" ? "Sentinel-1" : "Sentinel-2"} ·{" "}
+          {sat.acquisitionTime}
         </div>
       )}
 
       {/* Legend */}
-      <div style={{
-        position: "absolute", bottom: 28, right: 12,
-        background: "rgba(255,255,255,0.95)", padding: "10px 14px",
-        borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-        font: "12px system-ui", lineHeight: "20px",
-      }}>
-        <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 13 }}>Vessel Types</div>
+      <div className="panel panel-lg legend">
+        <div className="legend-title">Vessel Types</div>
         {VESSEL_META.map((m) => (
-          <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{
-              width: 0, height: 0,
-              borderLeft: "5px solid transparent",
-              borderRight: "5px solid transparent",
-              borderBottom: `8px solid ${m.color}`,
-              display: "inline-block",
-            }} />
+          <div key={m.key} className="legend-item">
+            <span
+              className="legend-swatch"
+              style={{ "--swatch-color": m.color } as React.CSSProperties}
+            />
             {m.label}
           </div>
         ))}
-        <div style={{ marginTop: 6, color: "#888", fontSize: 11 }}>
+        <div className="legend-count">
           {vessels.length.toLocaleString()} vessels
         </div>
       </div>
     </div>
   );
+}
+
+function formatTrajTime(iso: string): string {
+  const d = new Date(iso);
+  const date = d.toISOString().slice(0, 10);
+  const time = d.toISOString().slice(11, 19);
+  return `${date} ${time} UTC`;
+}
+
+function escapeHtml(s: string | undefined | null): string {
+  if (!s) return "";
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

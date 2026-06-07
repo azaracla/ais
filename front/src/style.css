@@ -1,0 +1,461 @@
+/* ═══════════════════════════════════════════
+   AIS Viewer — Design System
+   ═══════════════════════════════════════════ */
+
+/* ── Design Tokens ─────────────────────── */
+:root {
+  --color-bg-panel: rgba(255, 255, 255, 0.92);
+  --color-bg-panel-hover: rgba(255, 255, 255, 0.98);
+  --color-text: #1a1a2e;
+  --color-text-muted: #6b7280;
+  --color-text-dim: #9ca3af;
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
+  --color-danger: #ef4444;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-dark: rgba(0, 0, 0, 0.15);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.18);
+  --blur-panel: blur(14px);
+  --font-ui: 13px/1.4 system-ui, -apple-system, sans-serif;
+  --font-mono: 12px/1.5 "SF Mono", "Cascadia Code", "JetBrains Mono", monospace;
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
+
+[data-theme="dark"] {
+  --color-bg-panel: rgba(15, 15, 28, 0.92);
+  --color-bg-panel-hover: rgba(20, 20, 38, 0.96);
+  --color-text: #e2e2ed;
+  --color-text-muted: #9ca3af;
+  --color-text-dim: #6b7280;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-dark: rgba(255, 255, 255, 0.12);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Reset ─────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 0;
+  background: #0f0f1a;
+  font: var(--font-ui);
+  color: var(--color-text);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Splash Screen ─────────────────────── */
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0f0f1c;
+  transition: opacity var(--transition-normal);
+  gap: 20px;
+}
+#splash.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+#splash .splash-logo {
+  width: 64px;
+  height: 64px;
+}
+#splash .splash-title {
+  font: 600 20px system-ui;
+  color: #e2e2ed;
+  letter-spacing: -0.3px;
+}
+#splash .splash-subtitle {
+  font: 13px system-ui;
+  color: #6b7280;
+}
+#splash .splash-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
+}
+
+/* ── Map Container ──────────────────────── */
+.map-wrap {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  opacity: 0;
+  transition: opacity 400ms ease 100ms;
+}
+.map-wrap.visible { opacity: 1; }
+.map-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Glass Panel (shared) ──────────────── */
+.panel {
+  background: var(--color-bg-panel);
+  backdrop-filter: var(--blur-panel);
+  -webkit-backdrop-filter: var(--blur-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
+  font: var(--font-ui);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.panel-sm { padding: 6px 12px; border-radius: var(--radius-sm); }
+.panel-md { padding: 8px 14px; }
+.panel-lg { padding: 10px 16px; }
+
+/* ── Top Bar ───────────────────────────── */
+.top-bar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  z-index: 10;
+  pointer-events: none;
+}
+.top-bar > * { pointer-events: auto; }
+
+/* ── Control Groups ────────────────────── */
+.control-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.control-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* ── Buttons ───────────────────────────── */
+.btn {
+  padding: 5px 12px;
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  font: 12px system-ui;
+  cursor: pointer;
+  background: transparent;
+  color: var(--color-text);
+  transition: all var(--transition-fast);
+  outline: none;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--color-bg-panel-hover); border-color: var(--color-text-dim); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn:disabled:hover { background: transparent; border-color: var(--color-border-dark); }
+.btn-active {
+  background: var(--color-accent) !important;
+  color: #fff !important;
+  border-color: var(--color-accent) !important;
+  font-weight: 600;
+}
+.btn-active:hover { background: var(--color-accent-hover) !important; }
+
+/* ── Input / Select ────────────────────── */
+.input-text {
+  font: 13px system-ui;
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--color-text);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.input-text:focus { border-color: var(--color-accent); }
+select.input-text { cursor: pointer; max-width: 200px; }
+
+/* ── Checkbox ──────────────────────────── */
+.checkbox-label {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* ── Status Badges ─────────────────────── */
+.badge {
+  font: 13px system-ui;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.badge-loading { color: var(--color-accent); }
+.badge-error { color: var(--color-danger); }
+.badge-info { color: var(--color-text-muted); }
+.badge-warning { color: var(--color-warning); }
+.badge-dim { color: var(--color-text-dim); font-size: 11px; }
+
+/* ── Spinner (inline) ──────────────────── */
+.spinner-sm {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border-dark);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* ── Legend ────────────────────────────── */
+.legend {
+  position: absolute;
+  bottom: 28px;
+  right: 12px;
+  z-index: 10;
+  min-width: 140px;
+}
+.legend-title {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--color-text);
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 22px;
+  font-size: 12px;
+  color: var(--color-text);
+}
+.legend-swatch {
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 10px solid var(--swatch-color, #888);
+  display: inline-block;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+}
+.legend-count {
+  margin-top: 8px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 6px;
+}
+
+/* ── Theme Toggle ──────────────────────── */
+.theme-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+.theme-toggle:hover { transform: scale(1.1); }
+
+/* ── Acquisition Time Badge ────────────── */
+.acq-badge {
+  position: absolute;
+  bottom: 28px;
+  left: 12px;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font: 11px system-ui;
+  color: #fff;
+  pointer-events: none;
+}
+
+/* ── Map Attribution ───────────────────── */
+.maplibregl-ctrl-attrib {
+  font-size: 10px !important;
+  opacity: 0.5;
+  background: transparent !important;
+}
+
+/* ── Popup Overrides ───────────────────── */
+.maplibregl-popup-content {
+  background: var(--color-bg-panel) !important;
+  backdrop-filter: var(--blur-panel);
+  -webkit-backdrop-filter: var(--blur-panel);
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-lg) !important;
+  color: var(--color-text) !important;
+  padding: 0 !important;
+  overflow: hidden;
+  font: var(--font-ui);
+}
+.maplibregl-popup-tip {
+  border-top-color: var(--color-bg-panel) !important;
+}
+.maplibregl-popup-close-button {
+  color: var(--color-text-muted) !important;
+  font-size: 16px !important;
+  padding: 4px 6px !important;
+  border-radius: 0 var(--radius-md) 0 0 !important;
+  z-index: 5;
+}
+.maplibregl-popup-close-button:hover {
+  background: rgba(0,0,0,0.08) !important;
+  color: var(--color-text) !important;
+}
+
+/* Popup inner structure */
+.popup-header {
+  padding: 8px 14px;
+  font-weight: 700;
+  font-size: 15px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.popup-header .popup-color-bar {
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.popup-body {
+  padding: 8px 14px 10px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  font-size: 13px;
+}
+.popup-field-label {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.popup-field-value {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.popup-field-value.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ── Satellite Controls ────────────────── */
+.sat-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sat-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ── Trajectory Status in Popup ────────── */
+.traj-status {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.traj-status-done {
+  color: var(--color-text-muted);
+}
+.traj-status-error {
+  color: var(--color-danger);
+}
+
+/* ── Trajectory Tooltip ────────────────── */
+.traj-tooltip .maplibregl-popup-content {
+  padding: 4px 10px !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: var(--shadow-md) !important;
+  font: 12px var(--font-mono);
+  color: var(--color-text);
+  pointer-events: none;
+}
+.traj-tooltip-text {
+  font: 12px system-ui;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* ── Responsive ────────────────────────── */
+@media (max-width: 768px) {
+  .top-bar {
+    top: 6px;
+    left: 6px;
+    right: 6px;
+    gap: 6px;
+    flex-direction: column;
+  }
+  .panel-md { padding: 6px 10px; }
+  .btn { padding: 4px 8px; font-size: 11px; }
+  .legend {
+    bottom: 6px;
+    right: 6px;
+    font-size: 11px;
+  }
+  .legend-title { font-size: 12px; }
+  .legend-item { font-size: 11px; line-height: 18px; }
+  .input-text { font-size: 12px; padding: 3px 6px; max-width: 140px; }
+  .sat-row { gap: 4px; }
+  .theme-toggle {
+    top: 6px;
+    right: 6px;
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+  }
+  .acq-badge { bottom: 6px; left: 6px; }
+}

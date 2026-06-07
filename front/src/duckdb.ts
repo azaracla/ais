@@ -129,7 +129,7 @@ export async function queryVesselHistory(
   mmsi: number,
   vesselTs: string | Date,
   daysBack = 3,
-): Promise<{ lat: number; lng: number; ts: Date }[]> {
+): Promise<{ lat: number; lng: number; ts: Date; heading: number | null }[]> {
   if (!conn) throw new Error("DuckDB not initialized");
 
   const end = new Date(vesselTs);
@@ -164,6 +164,7 @@ export async function queryVesselHistory(
     lat: Number(row.lat) / 1e5,
     lng: Number(row.lon) / 1e5,
     ts: new Date(Number(row.ts) * 1000),
+    heading: null,
   }));
 }
 

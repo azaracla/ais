@@ -123,7 +123,26 @@ COPY (
         (message[message_type]['MaximumStaticDraught'])::DOUBLE AS max_static_draught,
         (message[message_type]['Destination'])::VARCHAR AS destination,
 
-        NULL::TIMESTAMPTZ AS eta,
+        -- ETA from ShipStaticData (struct {Month, Day, Hour, Minute}, no Year).
+        -- Approximate year from message ts: if ETA month/day < current, next year.
+        CASE WHEN message_type = 'ShipStaticData'
+            AND message['ShipStaticData']['Eta'] IS NOT NULL
+        THEN
+            make_timestamptz(
+                EXTRACT(year FROM ts) + CASE
+                    WHEN (message['ShipStaticData']['Eta']['Month'])::INTEGER < EXTRACT(month FROM ts)
+                      OR ((message['ShipStaticData']['Eta']['Month'])::INTEGER = EXTRACT(month FROM ts)
+                          AND (message['ShipStaticData']['Eta']['Day'])::INTEGER < EXTRACT(day FROM ts))
+                    THEN 1 ELSE 0
+                END,
+                (message['ShipStaticData']['Eta']['Month'])::INTEGER,
+                (message['ShipStaticData']['Eta']['Day'])::INTEGER,
+                (message['ShipStaticData']['Eta']['Hour'])::INTEGER,
+                (message['ShipStaticData']['Eta']['Minute'])::INTEGER,
+                0
+            )
+        ELSE NULL
+        END AS eta,
         (message[message_type]['Dte'])::BOOLEAN AS dte,
 
         -- FixType: AidsToNavigationReport uses 'Fixtype' (lowercase 't').

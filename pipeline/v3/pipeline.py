@@ -140,11 +140,16 @@ def download_files(s3, keys: list[str], dest_dir: str,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def local_transform(target_date: datetime, work_dir_path: str,
-                     output_dir_path: str) -> dict:
+                     output_dir_path: str, tables: set | None = None) -> dict:
     """
     Consolidate + Derive locally. No DuckLake, no S3 — pure local DuckDB.
+    If tables is specified, only those tables are generated.
+    'messages' = silver consolidation; all others = gold derivation.
     Returns stats + paths of generated files.
     """
+    all_tables = tables is None
+    want_messages = all_tables or 'messages' in tables
+
     os.makedirs(output_dir_path, exist_ok=True)
 
     silver_dir = os.path.join(
@@ -165,21 +170,46 @@ def local_transform(target_date: datetime, work_dir_path: str,
     t0 = time.time()
 
     try:
-        # ── Consolidate ────────────────────────────────────────────────────
-        n_raw = len([f for f in os.listdir(work_dir_path) if f.endswith('.ndjson.zst')])
-        print(f"   📦 Consolidation: {n_raw} fichiers NDJSON → Parquet...")
-        run_sql(con, load_sql('01_consolidate.sql'), {
-            'raw_path': raw_glob,
-            'output_path': silver_file,
-        })
-        stats['messages'] = con.execute(
-            f"SELECT COUNT(*) FROM read_parquet('{silver_file}')"
-        ).fetchone()[0]
-        print(f"   ✅ messages: {stats['messages']:,} lignes ({time.time()-t0:.1f}s)")
+        # ── Consolidate (messages / silver) ──────────────────────────────────
+        if want_messages:
+            n_raw = len([f for f in os.listdir(work_dir_path) if f.endswith('.ndjson.zst')])
+            print(f"   📦 Consolidation: {n_raw} fichiers NDJSON → Parquet...")
+            run_sql(con, load_sql('01_consolidate.sql'), {
+                'raw_path': raw_glob,
+                'output_path': silver_file,
+            })
+            stats['messages'] = con.execute(
+                f"SELECT COUNT(*) FROM read_parquet('{silver_file}')"
+            ).fetchone()[0]
+            print(f"   ✅ messages: {stats['messages']:,} lignes ({time.time()-t0:.1f}s)")
+        else:
+            # Download existing silver from S3 if not present locally
+            if not os.path.exists(silver_file):
+                print("   📥 Téléchargement silver existant depuis S3...")
+                s3 = s3_client()
+                base_https = f"https://{BUCKET_PUBLIC}.s3.gra.io.cloud.ovh.net"
+                y, m, d = target_date.year, f"{target_date.month:02d}", f"{target_date.day:02d}"
+                silver_key = (
+                    f"{S3_DATA_PREFIX}/silver/year={y}/month={m}/day={d}"
+                    f"/messages_consolidated.parquet"
+                )
+                try:
+                    s3.download_file(BUCKET_PUBLIC, silver_key, silver_file)
+                    print(f"   ✅ Silver téléchargé")
+                except Exception as e:
+                    print(f"   ❌ Silver introuvable dans S3: {e}")
+                    return stats
+            else:
+                print(f"   ♻️  Silver existant: {silver_file}")
 
         # ── Derive ─────────────────────────────────────────────────────────
-        print("   🏗️  Dérivation gold...")
-        t1 = time.time()
+        want_gold = all_tables or bool(tables & {'vessels_positions', 'vessel_tracks', 'base_stations', 'aids_to_navigation'})
+        if not want_gold and 'vessels' not in (tables or set()):
+            return stats
+
+        if want_gold:
+            print("   🏗️  Dérivation gold...")
+            t1 = time.time()
 
         # Hive-style partition paths for DuckLake compatibility
         y, m, d = target_date.year, f"{target_date.month:02d}", f"{target_date.day:02d}"
@@ -192,23 +222,48 @@ def local_transform(target_date: datetime, work_dir_path: str,
                               f'year={y}', f'month={m}', f'day={d}')
         an_dir = os.path.join(gold_dir, 'aids_to_navigation',
                               f'year={y}', f'month={m}', f'day={d}')
-        for dpath in [vp_dir, vt_dir, bs_dir, an_dir]:
-            os.makedirs(dpath, exist_ok=True)
 
-        run_sql(con, load_sql('02_derive.sql'), {
-            'silver_path': silver_file,
-            'vessels_positions_path':
-                os.path.join(vp_dir, 'vessels_positions.parquet'),
-            'vessel_tracks_path':
-                os.path.join(vt_dir, 'vessel_tracks.parquet'),
-            'base_stations_path':
-                os.path.join(bs_dir, 'base_stations.parquet'),
-            'aids_to_navigation_path':
-                os.path.join(an_dir, 'aids_to_navigation.parquet'),
-        })
+        derive_tables = tables if not all_tables else {'vessels_positions', 'vessel_tracks', 'base_stations', 'aids_to_navigation'}
 
-        for table in ['vessels_positions', 'vessel_tracks', 'base_stations',
-                       'aids_to_navigation']:
+        # Always create dirs for tables we might write
+        for t, dpath in [('vessels_positions', vp_dir), ('vessel_tracks', vt_dir),
+                         ('base_stations', bs_dir), ('aids_to_navigation', an_dir)]:
+            if t in derive_tables:
+                os.makedirs(dpath, exist_ok=True)
+
+        # Build derive SQL — only selected tables
+        derive_sql = load_sql('02_derive.sql')
+        # Split by COPY statements, keep only requested tables
+        import re
+        blocks = re.split(r'\n(?=-- \d+\. )', derive_sql)
+        selected_blocks = [blocks[0]]  # header comments
+        table_patterns = {
+            'vessels_positions': 'vessels_positions',
+            'vessel_tracks': 'vessel_tracks',
+            'base_stations': 'base_stations',
+            'aids_to_navigation': 'aids_to_navigation',
+        }
+        for block in blocks[1:]:
+            for tbl, pattern in table_patterns.items():
+                if tbl in derive_tables and pattern in block.split('\n')[0].lower():
+                    selected_blocks.append(block)
+                    break
+        filtered_sql = '\n'.join(selected_blocks)
+
+        if filtered_sql.strip():
+            run_sql(con, filtered_sql, {
+                'silver_path': silver_file,
+                'vessels_positions_path':
+                    os.path.join(vp_dir, 'vessels_positions.parquet'),
+                'vessel_tracks_path':
+                    os.path.join(vt_dir, 'vessel_tracks.parquet'),
+                'base_stations_path':
+                    os.path.join(bs_dir, 'base_stations.parquet'),
+                'aids_to_navigation_path':
+                    os.path.join(an_dir, 'aids_to_navigation.parquet'),
+            })
+
+        for table in derive_tables:
             if table == 'vessel_tracks':
                 p = os.path.join(gold_dir, table, f'date={date_str}', f'{table}.parquet')
             else:
@@ -221,23 +276,27 @@ def local_transform(target_date: datetime, work_dir_path: str,
                 ).fetchone()[0]
             else:
                 stats[table] = 0
-        print(f"   ✅ Gold ({time.time()-t1:.1f}s): "
-              + ', '.join(f'{k}={v:,}' for k, v in stats.items() if k != 'messages'))
+
+        if want_gold:
+            print(f"   ✅ Gold ({time.time()-t1:.1f}s): "
+                  + ', '.join(f'{k}={v:,}' for k, v in stats.items() if k != 'messages'))
 
         # ── Vessels ───────────────────────────────────────────────────────
-        print("   🚢 Vessels...")
-        t2 = time.time()
-        vessels_dir = os.path.join(gold_dir, 'vessels')
-        os.makedirs(vessels_dir, exist_ok=True)
-        vessels_file = os.path.join(vessels_dir, 'vessels.parquet')
-        run_sql(con, load_sql('03_vessels.sql'), {
-            'silver_path': silver_file,
-            'output_path': vessels_file,
-        })
-        stats['vessels'] = con.execute(
-            f"SELECT COUNT(*) FROM read_parquet('{vessels_file}')"
-        ).fetchone()[0]
-        print(f"   ✅ vessels: {stats['vessels']:,} navires ({time.time()-t2:.1f}s)")
+        want_vessels = all_tables or 'vessels' in tables
+        if want_vessels:
+            print("   🚢 Vessels...")
+            t2 = time.time()
+            vessels_dir = os.path.join(gold_dir, 'vessels')
+            os.makedirs(vessels_dir, exist_ok=True)
+            vessels_file = os.path.join(vessels_dir, 'vessels.parquet')
+            run_sql(con, load_sql('03_vessels.sql'), {
+                'silver_path': silver_file,
+                'output_path': vessels_file,
+            })
+            stats['vessels'] = con.execute(
+                f"SELECT COUNT(*) FROM read_parquet('{vessels_file}')"
+            ).fetchone()[0]
+            print(f"   ✅ vessels: {stats['vessels']:,} navires ({time.time()-t2:.1f}s)")
     finally:
         con.close()
 
@@ -304,7 +363,8 @@ def upload_output_files(s3, output_dir_path: str,
 
 def update_catalog(s3, uploaded_files: list[tuple[str, str]],
                    target_date: datetime, force: bool,
-                   output_dir_path: str = ''):
+                   output_dir_path: str = '',
+                   tables: set | None = None):
     """
     Download catalog, register new files, upsert vessels, upload catalog.
     Uses DuckLake with S3 DATA_PATH — small operations, latency acceptable.
@@ -371,8 +431,11 @@ def update_catalog(s3, uploaded_files: list[tuple[str, str]],
         # ── Create tables if new ─────────────────────────────────────────
         if is_new:
             _create_all_tables(con)
-        elif force:
-            _clean_partitions(con, target_date)
+        else:
+            if force:
+                # Clean old partitions before schema migration to avoid type mismatch
+                _clean_partitions(con, target_date, tables)
+            _migrate_schema(con, tables)
 
         # ── Register files ───────────────────────────────────────────────
         known = {
@@ -391,6 +454,9 @@ def update_catalog(s3, uploaded_files: list[tuple[str, str]],
             if not info:
                 continue
             table_name, hive = info
+            # Skip tables not requested
+            if tables is not None and table_name not in tables:
+                continue
             # messages table in existing v2 catalog has GENERATED ALWAYS columns
             # for year/month/day — our Parquet has them as regular columns.
             ignore = 'true' if table_name == 'messages' else 'false'
@@ -531,8 +597,22 @@ def _create_all_tables(con):
     print("   🗂️  Tables créées")
 
 
-def _clean_partitions(con, target_date: datetime):
+def _migrate_schema(con, tables: set | None = None):
+    """Handle schema evolution for existing tables."""
+    # Clean up heading column if it was added by a previous migration
+    if tables is None or 'vessel_tracks' in tables:
+        try:
+            con.execute(
+                "ALTER TABLE ais_lake.vessel_tracks "
+                "DROP COLUMN IF EXISTS heading"
+            )
+        except Exception:
+            pass  # column may not exist or DuckLake may not support DROP
+
+
+def _clean_partitions(con, target_date: datetime, tables: set | None = None):
     """Delete existing partitions for target_date (--force mode)."""
+    all_tables = tables is None
     y, m, d = target_date.year, f"{target_date.month:02d}", target_date.day
     date_str = target_date.strftime('%Y-%m-%d')
 
@@ -544,6 +624,8 @@ def _clean_partitions(con, target_date: datetime):
         'aids_to_navigation':    f"year = {y} AND month = '{m}' AND day = {d}",
     }
     for table_name, where in deletes.items():
+        if not all_tables and table_name not in tables:
+            continue
         try:
             con.execute(f"DELETE FROM ais_lake.{table_name} WHERE {where}")
             print(f"   🗑️  {table_name}: partition {date_str} nettoyée")
@@ -555,10 +637,13 @@ def _clean_partitions(con, target_date: datetime):
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def process_date(target_date: datetime, force: bool = False, no_download: bool = False):
+def process_date(target_date: datetime, force: bool = False, no_download: bool = False,
+                  tables: set | None = None):
     ts = target_date.strftime('%Y-%m-%d')
     print(f"\n{'═'*70}")
     print(f"📅 {ts}")
+    if tables:
+        print(f"   🎯 Tables: {', '.join(sorted(tables))}")
     print(f"{'═'*70}")
 
     s3 = s3_client()
@@ -599,7 +684,7 @@ def process_date(target_date: datetime, force: bool = False, no_download: bool =
 
     # 2-3. Local transform (consolidate + derive)
     t_start = time.time()
-    stats = local_transform(target_date, wd, od)
+    stats = local_transform(target_date, wd, od, tables)
     print(f"   ⏱️  Transform locale: {time.time()-t_start:.1f}s")
 
     # 4. Upload Parquet files
@@ -609,18 +694,16 @@ def process_date(target_date: datetime, force: bool = False, no_download: bool =
 
     # 5. Update catalog + upsert vessels
     t3 = time.time()
-    update_catalog(s3, uploaded_files, target_date, force, od)
+    update_catalog(s3, uploaded_files, target_date, force, od, tables)
     print(f"   ⏱️  Catalogue: {time.time()-t3:.1f}s")
 
     # Cleanup output (keep work dir for caching)
     shutil.rmtree(od, ignore_errors=True)
 
     print(f"\n✅ {ts} terminé en {time.time()-t_start:.1f}s")
-    print(f"   messages:           {stats.get('messages', '?'):,}")
-    print(f"   vessels_positions:  {stats.get('vessels_positions', '?'):,}")
-    print(f"   vessel_tracks:      {stats.get('vessel_tracks', '?'):,}")
-    print(f"   base_stations:      {stats.get('base_stations', '?'):,}")
-    print(f"   aids_to_navigation: {stats.get('aids_to_navigation', '?'):,}")
+    for t in ['messages', 'vessels_positions', 'vessel_tracks', 'base_stations', 'aids_to_navigation', 'vessels']:
+        if t in stats:
+            print(f"   {t:<20} {stats[t]:,}")
 
 
 def date_range(start: datetime, end: datetime) -> list[datetime]:
@@ -654,7 +737,23 @@ if __name__ == "__main__":
                         help="Nettoie la partition avant republication")
     parser.add_argument("--no-download", action="store_true",
                         help="Skip download, use fichiers déjà dans work/")
+    parser.add_argument("--tables", type=str, default=None,
+                        help="Tables à générer, séparées par des virgules "
+                             "(messages, vessels_positions, vessel_tracks, "
+                             "base_stations, aids_to_navigation, vessels). "
+                             "Défaut: toutes. Si 'messages' absent, "
+                             "télécharge le silver existant depuis S3.")
     args = parser.parse_args()
+
+    tables = set(t.strip() for t in args.tables.split(',')) if args.tables else None
+    if tables:
+        valid = {'messages', 'vessels_positions', 'vessel_tracks',
+                 'base_stations', 'aids_to_navigation', 'vessels'}
+        unknown = tables - valid
+        if unknown:
+            print(f"❌ Tables inconnues: {', '.join(sorted(unknown))}")
+            print(f"   Valides: {', '.join(sorted(valid))}")
+            sys.exit(1)
 
     if args.start_date and args.end_date:
         dates = date_range(parse_date(args.start_date), parse_date(args.end_date))
@@ -668,4 +767,4 @@ if __name__ == "__main__":
         dates = [datetime.now(timezone.utc) - timedelta(days=1)]
 
     for d in dates:
-        process_date(d, force=args.force, no_download=args.no_download)
+        process_date(d, force=args.force, no_download=args.no_download, tables=tables)
