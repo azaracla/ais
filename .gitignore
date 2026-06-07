@@ -86,3 +86,4 @@ Thumbs.db
 silver/
 gold/
 vessels.parquet
+.tmp/

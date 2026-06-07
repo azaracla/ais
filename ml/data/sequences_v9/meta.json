@@ -1,0 +1,27 @@
+{
+  "n_samples": 196982,
+  "step_features": [
+    "lat",
+    "lon",
+    "sog",
+    "cog_sin",
+    "cog_cos",
+    "hdg_sin",
+    "hdg_cos",
+    "nav_status_filled",
+    "rot_filled",
+    "sog_accel_clean",
+    "dt_hours",
+    "d_km_clean",
+    "dist_to_dest_km",
+    "bearing_to_dest_deg",
+    "hours_before"
+  ],
+  "n_step_features": 15,
+  "max_seq_len": 50,
+  "seq_window_h": 24,
+  "mean_seq_len": 46.747555614218555,
+  "target_mean_h": 16.775794982910156,
+  "target_min_h": 0.4166666567325592,
+  "target_max_h": 168.0
+}

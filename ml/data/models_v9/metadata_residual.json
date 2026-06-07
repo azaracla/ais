@@ -1,0 +1,12 @@
+{
+  "version": "v9-residual",
+  "architecture": "ResidualLSTM",
+  "test_mae": 15.20263454120782,
+  "test_r2": -0.16583469262622708,
+  "baseline": "eta_naive_h (log1p)",
+  "lstm_hidden": 64,
+  "lstm_layers": 2,
+  "batch_size": 256,
+  "n_epochs": 16,
+  "random_seed": 42
+}

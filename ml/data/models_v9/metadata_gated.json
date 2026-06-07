@@ -1,0 +1,11 @@
+{
+  "version": "v9-gated",
+  "gate_threshold_km": 200.0,
+  "gate_smoothness": 3.0,
+  "test_mae_lstm": 15.212084746709424,
+  "test_mae_v8": 9.967632293701172,
+  "test_mae_gated": 10.645374052635365,
+  "lstm_hidden": 64,
+  "n_epochs": 20,
+  "random_seed": 42
+}

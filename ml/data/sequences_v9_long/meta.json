@@ -1,0 +1,23 @@
+{
+  "n_samples": 4014,
+  "step_features": [
+    "lat",
+    "lon",
+    "sog",
+    "cog_sin",
+    "cog_cos",
+    "hdg_sin",
+    "hdg_cos",
+    "nav_status_filled",
+    "rot_filled",
+    "dt_hours",
+    "hours_before"
+  ],
+  "n_step_features": 11,
+  "max_seq_len": 100,
+  "seq_window_h": 168,
+  "mean_seq_len": 97.70478325859492,
+  "target_mean_h": 19.267528533935547,
+  "target_min_h": 0.4166666567325592,
+  "target_max_h": 167.99972534179688
+}

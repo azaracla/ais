@@ -1,0 +1,16 @@
+{
+  "version": "v9-stacked",
+  "test_mae_v8": 9.967632293701172,
+  "test_mae_lstm": 15.192775798866688,
+  "test_mae_blended": 9.967632069522912,
+  "test_mae_stacked": 9.976778275584675,
+  "best_blend_weight": 0.0,
+  "meta_features": [
+    "lstm_pred",
+    "v8_pred",
+    "log_dist",
+    "log_eta_naive"
+  ],
+  "lstm_hidden": 64,
+  "n_epochs": 17
+}
