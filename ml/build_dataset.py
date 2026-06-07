@@ -87,7 +87,9 @@ def build():
                     ORDER BY EXTRACT(EPOCH FROM ts)
                     RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
                 ), 0.0
-            ) AS sog_trend_1h
+            ) AS sog_trend_1h,
+            -- Per-vessel overall average speed (all positions)
+            AVG(sog) OVER (PARTITION BY mmsi) AS mmsi_avg_sog
         FROM positions
     """)
 
@@ -118,6 +120,7 @@ def build():
             p.avg_sog_6h,
             p.avg_sog_24h,
             p.sog_trend_1h,
+            p.mmsi_avg_sog,
             DATEDIFF('second', p.ts, a.arrival_ts) / 3600.0 AS time_to_arrival_hours
         FROM arrivals a
         JOIN positions_hist p ON a.mmsi = p.mmsi
@@ -138,7 +141,7 @@ def build():
                 mmsi, arrival_ts, arrival_lat, arrival_lon,
                 port_lo_code, port_lat, port_lon, destination_clean, detection_method,
                 pos_ts, pos_lat, pos_lon, pos_sog, pos_cog, time_to_arrival_hours,
-                avg_sog_1h, avg_sog_6h, avg_sog_24h, sog_trend_1h
+                avg_sog_1h, avg_sog_6h, avg_sog_24h, sog_trend_1h, mmsi_avg_sog
             FROM traj
             WHERE time_to_arrival_hours BETWEEN {t_min} AND {t_max}
             ORDER BY mmsi, arrival_ts, ABS(time_to_arrival_hours - {target_h}) ASC
@@ -156,7 +159,7 @@ def build():
         "destination_clean", "detection_method",
         "pos_ts", "pos_lat", "pos_lon", "pos_sog", "pos_cog",
         "time_to_arrival_hours",
-        "avg_sog_1h", "avg_sog_6h", "avg_sog_24h", "sog_trend_1h",
+        "avg_sog_1h", "avg_sog_6h", "avg_sog_24h", "sog_trend_1h", "mmsi_avg_sog",
     ]
     df_samples = pl.DataFrame(sampled_rows, schema=columns, orient="row")
     df_samples.write_parquet(DATA_DIR / "_samples.parquet")
@@ -234,8 +237,11 @@ def build():
             COALESCE(avg_sog_6h, pos_sog) AS avg_sog_6h,
             COALESCE(avg_sog_24h, pos_sog) AS avg_sog_24h,
             COALESCE(sog_trend_1h, 0) AS sog_trend_1h,
-            -- Naive ETA: distance / speed. XGBoost can't learn this ratio well.
+            COALESCE(mmsi_avg_sog, pos_sog) AS mmsi_avg_sog,
+            -- Naive ETA: distance / speed (XGBoost can't learn ratios)
             ROUND(dist_to_dest_km / GREATEST(pos_sog, 1.0), 2) AS eta_naive_h,
+            -- How much faster/slower than this vessel's average?
+            ROUND(pos_sog / GREATEST(mmsi_avg_sog, 1.0), 3) AS sog_vs_mmsi_avg,
             detection_method
         FROM samples_vessel
         WHERE dist_to_dest_km IS NOT NULL

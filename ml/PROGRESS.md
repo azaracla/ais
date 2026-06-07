@@ -53,11 +53,32 @@
 - LightGBM marginally better than XGBoost (0.1h MAE difference)
 - 2000+ km bucket has 11.2h MAE — model learns "far = many hours" but doesn't distinguish within far
 
-## Next ideas (ordered by expected impact)
-1. **Log-transform target** — target distribution is right-skewed (0.4h to 168h). Log-transform → RMSE in log-space → exp back. Should reduce long-range error.
-2. **LightGBM** — native categorical support, often better on tabular data, faster training.
-3. **Hyperparameter tuning** — Optuna or randomized search on n_estimators, max_depth, lr, subsample.
-4. **Sample weighting** — weight short-horizon samples more (they're more useful in practice).
-5. **Distance traveled features** — distance between current position and 1h/6h ago (effective speed, not just instantaneous SOG).
-6. **Port congestion / time of day** — some ports have rush hours, night closures.
-7. **Cross-validation** — K-fold temporal instead of single 80/20 split.
+## v5 (per-horizon) — 2026-06-07
+### Changes
+- **5 specialized LightGBM models**, one per TTA bin: 0-1h, 1-6h, 6-24h, 1-3d, 3-8d
+- Each model trained ONLY on samples in its bin → no cross-horizon interference
+- Added **mmsi_avg_sog** (per-vessel average speed) and **sog_vs_mmsi_avg** (ratio vs vessel average)
+- Optuna-tuned hyperparams (50 trials): num_leaves=88, lr=0.072, bagging_freq=7
+
+### Results
+- **Ensemble MAE: 3.4h** (-69% vs v4, -85% vs v2!)
+- **R²: 0.9015** (vs -0.12 for v4 — paradigm shift)
+- 0-1h bin: **MAE 0.2h** (±12 min), 100% within ±2h
+- 1-6h bin: **MAE 0.9h**, 91% within ±2h
+- 6-24h bin: MAE 4.2h, 79% within ±6h
+- 1-3d bin: MAE 13.9h
+- 3-8d bin: MAE 26.6h
+- Within 6h: 86.9%, Within 24h: 96.0%
+
+### Key insight
+Global model forced to predict 0.5h and 168h with same parameters → log-variance of short horizons destroyed by long-horizon noise. Per-bin models each learn a narrow distribution → log-transform works properly → massive accuracy gain.
+
+### Caveat
+At inference, need to pick which model to use (true TTA unknown). Solution: use eta_naive_h (dist/sog) as first-stage router. Mis-routing cost is bounded.
+
+## Next ideas
+1. **Inference router** — classifier to pick the right horizon model from eta_naive + features
+2. **Quantile regression** — prediction intervals (P10/P90) for uncertainty quantification
+3. **Port-specific features** — average waiting time, congestion at destination port
+4. **Weather data** — wind, waves, currents along route
+5. **Production deployment** — package models, inference API
