@@ -1,10 +1,7 @@
-import { useState, useEffect, useRef } from "react";
-import { getVesselDetail } from "./duckdb";
 import { navStatusLabel } from "./types";
-import type { Vessel, VesselDetail } from "./types";
+import type { Vessel } from "./types";
 
 interface Props {
-  mmsi: number;
   vessel: Vessel;
   color: string;
   trajectoryStatus: "loading" | "done" | "error" | "idle";
@@ -12,36 +9,12 @@ interface Props {
 }
 
 export default function VesselDetails({
-  mmsi,
   vessel,
   color,
   trajectoryStatus,
   trajectoryCount,
 }: Props) {
-  const [detail, setDetail] = useState<VesselDetail | null>(null);
-  const [loading, setLoading] = useState(false);
-  const genRef = useRef(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    const gen = ++genRef.current;
-    setDetail(null);
-    setLoading(true);
-    getVesselDetail(mmsi)
-      .then((d) => {
-        if (cancelled || gen !== genRef.current) return;
-        setDetail(d);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled && gen === genRef.current) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [mmsi]);
-
-  const d = detail ?? vessel;
+  const d = vessel;
 
   return (
     <div className="vd-wrap">
@@ -54,17 +27,17 @@ export default function VesselDetails({
         <span className="vd-label">MMSI</span>
         <span className="vd-value">{d.id}</span>
 
-        {detail?.imo != null && (
+        {d.imo != null && (
           <>
             <span className="vd-label">IMO</span>
-            <span className="vd-value">{detail.imo}</span>
+            <span className="vd-value">{d.imo}</span>
           </>
         )}
 
-        {detail?.callSign && (
+        {d.callSign && (
           <>
             <span className="vd-label">Call Sign</span>
-            <span className="vd-value mono">{detail.callSign}</span>
+            <span className="vd-value mono">{d.callSign}</span>
           </>
         )}
 
@@ -73,11 +46,11 @@ export default function VesselDetails({
           {d.shipType}
         </span>
 
-        {detail?.length != null && detail?.width != null && isFinite(detail.length) && isFinite(detail.width) && (
+        {d.length != null && d.width != null && isFinite(d.length) && isFinite(d.width) && (
           <>
             <span className="vd-label">Dimensions</span>
             <span className="vd-value">
-              {detail.length}m &times; {detail.width}m
+              {d.length}m &times; {d.width}m
             </span>
           </>
         )}
@@ -88,10 +61,10 @@ export default function VesselDetails({
         <span className="vd-label">Heading</span>
         <span className="vd-value">{d.heading}&deg;</span>
 
-        {detail?.navStatus != null && (
+        {d.navStatus != null && (
           <>
             <span className="vd-label">Status</span>
-            <span className="vd-value">{navStatusLabel(detail.navStatus)}</span>
+            <span className="vd-value">{navStatusLabel(d.navStatus)}</span>
           </>
         )}
 
@@ -111,11 +84,11 @@ export default function VesselDetails({
           </>
         )}
 
-        {detail?.lastSeenStatic && (
+        {d.lastSeenStatic && (
           <>
             <span className="vd-label">Last Static</span>
             <span className="vd-value mono">
-              {new Date(detail.lastSeenStatic)
+              {new Date(d.lastSeenStatic)
                 .toISOString()
                 .slice(0, 19)
                 .replace("T", " ")}{" "}
@@ -124,13 +97,6 @@ export default function VesselDetails({
           </>
         )}
       </div>
-
-      {loading && (
-        <div className="vd-loading">
-          <span className="spinner-sm" />
-          Loading details…
-        </div>
-      )}
 
       <div className="vd-section">
         <div className="vd-section-title">Track</div>

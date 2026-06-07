@@ -11,18 +11,18 @@ export interface Vessel {
   shipType: ShipType;
   destination?: string;
   ts?: string;
-}
-
-export interface VesselDetail extends Vessel {
   imo?: number;
   callSign?: string;
   length?: number;
   width?: number;
-  draught?: number;
   navStatus?: number;
+  lastSeenStatic?: string;
+}
+
+export interface VesselDetail extends Vessel {
+  draught?: number;
   navStatusLabel?: string;
   eta?: string;
-  lastSeenStatic?: string;
 }
 
 export interface VesselSummary {

@@ -398,9 +398,9 @@ export default function App() {
               20,
               ["*", ["get", "searchRadius"], 9.5],
             ],
-            "circle-color": "#6366f1",
+            "circle-color": "#2563eb",
             "circle-opacity": 0.12,
-            "circle-stroke-color": "#6366f1",
+            "circle-stroke-color": "#2563eb",
             "circle-stroke-width": 0.5,
             "circle-stroke-opacity": 0.3,
           },
@@ -431,7 +431,7 @@ export default function App() {
       // Arrow layer for trajectory direction
       const arrowId = "traj-arrow";
       if (!m.hasImage(arrowId)) {
-        m.addImage(arrowId, makeArrowIcon("#6366f1", themeRef.current));
+        m.addImage(arrowId, makeArrowIcon("#2563eb", themeRef.current));
       }
       m.addLayer({
         id: "vt-arrows",
@@ -662,7 +662,7 @@ export default function App() {
       // Re-create trajectory arrow for current theme
       const arrowId = "traj-arrow";
       if (map.hasImage(arrowId)) map.removeImage(arrowId);
-      map.addImage(arrowId, makeArrowIcon("#6366f1", theme));
+      map.addImage(arrowId, makeArrowIcon("#2563eb", theme));
       setSourceReady(true);
     });
   }, [theme]);

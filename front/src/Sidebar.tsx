@@ -196,7 +196,6 @@ export default function Sidebar({
                 </button>
               </div>
               <VesselDetails
-                mmsi={selectedMmsi!}
                 vessel={selectedVessel!}
                 color={CAT_COLORS[selectedVessel!.shipType]}
                 trajectoryStatus={trajectoryStatus}

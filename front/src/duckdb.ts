@@ -1,7 +1,7 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
 import duckdb_wasm_eh from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import DuckDBWorkerEH from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?worker";
-import type { Vessel, VesselDetail, VesselSummary, Bounds } from "./types";
+import type { Vessel, VesselSummary, Bounds } from "./types";
 import { shipTypeAISToCategory } from "./types";
 
 let db: duckdb.AsyncDuckDB | null = null;
@@ -80,8 +80,9 @@ export async function queryLastPositions(
 
   const sql = `
     SELECT DISTINCT ON (p.mmsi)
-      p.mmsi, p.lat, p.lon, p.sog, p.cog, p.true_heading,
-      p.ts, v.name, v.ship_type, v.destination
+      p.mmsi, p.lat, p.lon, p.sog, p.cog, p.true_heading, p.navigational_status,
+      p.ts, v.name, v.ship_type, v.destination,
+      v.imo_number, v.call_sign, v.length, v.width, v.last_seen_static
     FROM ais.vessels_positions p
     LEFT JOIN ais.vessels v ON v.mmsi = p.mmsi
     WHERE p.year = ${year}
@@ -195,51 +196,6 @@ export async function searchVessels(query: string, limit = 15): Promise<VesselSu
   }));
 }
 
-export async function getVesselDetail(mmsi: number): Promise<VesselDetail | null> {
-  if (!duckDbReady) await initDuckDB();
-  if (!conn) throw new Error("DuckDB not initialized");
-
-  const sql = `
-    SELECT v.mmsi, v.name, v.call_sign, v.imo_number, v.ship_type,
-           v.length, v.width, v.destination, v.last_seen_static,
-           p.lat, p.lon, p.sog, p.cog, p.true_heading, p.ts, p.navigational_status
-    FROM ais.vessels v
-    LEFT JOIN (
-      SELECT DISTINCT ON (mmsi) mmsi, lat, lon, sog, cog, true_heading, ts, navigational_status
-      FROM ais.vessels_positions
-      WHERE mmsi = ${mmsi}
-      ORDER BY mmsi, ts DESC
-      LIMIT 1
-    ) p ON v.mmsi = p.mmsi
-    WHERE v.mmsi = ${mmsi}
-  `;
-
-  const result = await conn.send(sql);
-  const rows: any[] = [];
-  for await (const chunk of result) {
-    rows.push(...chunk);
-  }
-  if (rows.length === 0) return null;
-  const row = rows[0];
-
-  return {
-    id: Number(row.mmsi),
-    name: row.name ?? "Unknown",
-    lat: Number(row.lat ?? 0),
-    lng: Number(row.lon ?? 0),
-    heading: Number(row.true_heading ?? row.cog ?? 0),
-    speed: Number(row.sog ?? 0),
-    shipType: shipTypeAISToCategory(row.ship_type != null ? Number(row.ship_type) : null),
-    destination: row.destination ?? undefined,
-    ts: row.ts ?? undefined,
-    imo: row.imo_number != null ? Number(row.imo_number) : undefined,
-    callSign: row.call_sign ?? undefined,
-    length: row.length != null ? Number(row.length) : undefined,
-    width: row.width != null ? Number(row.width) : undefined,
-    navStatus: row.navigational_status != null ? Number(row.navigational_status) : undefined,
-  };
-}
-
 function toVessel(row: any): Vessel {
   return {
     id: Number(row.mmsi),
@@ -251,5 +207,11 @@ function toVessel(row: any): Vessel {
     shipType: shipTypeAISToCategory(row.ship_type != null ? Number(row.ship_type) : null),
     destination: row.destination ?? undefined,
     ts: row.ts ?? undefined,
+    imo: row.imo_number != null ? Number(row.imo_number) : undefined,
+    callSign: row.call_sign ?? undefined,
+    length: row.length != null && isFinite(Number(row.length)) ? Number(row.length) : undefined,
+    width: row.width != null && isFinite(Number(row.width)) ? Number(row.width) : undefined,
+    navStatus: row.navigational_status != null ? Number(row.navigational_status) : undefined,
+    lastSeenStatic: row.last_seen_static ?? undefined,
   };
 }

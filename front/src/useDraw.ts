@@ -39,7 +39,7 @@ export function useDraw(map: maplibregl.Map | null) {
         type: "fill",
         source: srcId,
         paint: {
-          "fill-color": "#6366f1",
+          "fill-color": "#2563eb",
           "fill-opacity": preview ? 0.08 : 0.15,
         },
       });
@@ -48,7 +48,7 @@ export function useDraw(map: maplibregl.Map | null) {
         type: "line",
         source: srcId,
         paint: {
-          "line-color": "#6366f1",
+          "line-color": "#2563eb",
           "line-width": preview ? 1 : 2,
           "line-dasharray": preview ? [2, 4] : [1, 0],
         },
