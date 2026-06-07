@@ -29,12 +29,12 @@ export async function initDuckDB(): Promise<void> {
     db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
     await db.instantiate(duckdb_wasm_eh, "?modulePath=");
 
-    // reliableHeadRequests: false — éviter les HEAD requests qui peuvent
-    // retourner des Content-Length inconsistants après ré-upload des fichiers.
+    // reliableHeadRequests: true — le catalog DuckLake est un fichier DuckDB,
+    // pas un Parquet, et a besoin des HEAD requests pour les Range.
     await db.open({
       filesystem: {
         allowFullHTTPReads: false,
-        reliableHeadRequests: false,
+        reliableHeadRequests: true,
         forceFullHTTPReads: false,
       },
     });
