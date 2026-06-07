@@ -17,6 +17,7 @@ dependencies = [
     "lightgbm>=4.6.0",
     "optuna>=4.9.0",
     "catboost>=1.2.10",
+    "searoute>=1.6.0",
 ]
 
 [tool.uv]
