@@ -70,30 +70,29 @@ export default function Timeline({
 
   return (
     <div className={`timeline-bar${isActive ? " active" : ""}`}>
-      <input
-        type="datetime-local"
-        className="date-input input-text"
-        value={date.slice(0, 16)}
-        onChange={handleDateChange}
-      />
-
       <button
         className="timeline-btn timeline-play-btn"
         onClick={onTogglePlay}
         title={playing ? "Pause" : "Play"}
       >
         {playing ? (
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <rect x="1" y="1" width="3" height="10" rx="0.5" fill="currentColor" />
-            <rect x="8" y="1" width="3" height="10" rx="0.5" fill="currentColor" />
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <rect x="2" y="1.5" width="4" height="13" rx="1" fill="currentColor" />
+            <rect x="10" y="1.5" width="4" height="13" rx="1" fill="currentColor" />
           </svg>
         ) : (
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <polygon points="2,1 11,6 2,11" fill="currentColor" />
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <polygon points="3,2 14,8 3,14" fill="currentColor" />
           </svg>
         )}
       </button>
 
+      <input
+        type="datetime-local"
+        className="date-input input-text"
+        value={date.slice(0, 16)}
+        onChange={handleDateChange}
+      />
 
       <div className="timeline-scrub-wrap">
         <input
@@ -105,6 +104,13 @@ export default function Timeline({
           value={fraction}
           onChange={handleScrub}
         />
+        <div className="timeline-ticks">
+          <span>0h</span>
+          <span>6h</span>
+          <span>12h</span>
+          <span>18h</span>
+          <span>24h</span>
+        </div>
       </div>
 
       <select
