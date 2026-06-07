@@ -286,11 +286,11 @@ select.input-text { cursor: pointer; max-width: 200px; }
 /* ── Legend ────────────────────────────── */
 .legend {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 20;
+  top: -8px;
+  right: 0;
+  transform: translateY(-100%);
+  z-index: 1;
   min-width: 140px;
-  transition: left 250ms ease;
 }
 .legend-title {
   font-weight: 700;
@@ -324,10 +324,11 @@ select.input-text { cursor: pointer; max-width: 200px; }
 }
 .legend-toggle {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: -8px;
+  right: 0;
+  transform: translateY(-100%);
   display: none;
-  z-index: 21;
+  z-index: 1;
 }
 
 /* ── Theme Toggle ──────────────────────── */
@@ -1140,8 +1141,9 @@ select.input-text { cursor: pointer; max-width: 200px; }
     font-size: 11px;
     display: none;
     z-index: 11;
-    top: 6px;
+    top: -6px;
     right: 6px;
+    transform: translateY(-100%);
   }
   .legend.mobile-visible {
     display: block;
@@ -1158,8 +1160,9 @@ select.input-text { cursor: pointer; max-width: 200px; }
     cursor: pointer;
     font-size: 14px;
     padding: 0;
-    top: 6px;
+    top: -6px;
     right: 6px;
+    transform: translateY(-100%);
   }
   .legend-toggle.active {
     background: var(--color-accent);
@@ -1169,27 +1172,25 @@ select.input-text { cursor: pointer; max-width: 200px; }
 
   /* ── Mobile Timeline ────────────────── */
   .timeline-bar {
-    padding: 10px 12px;
-    gap: 8px;
+    padding: 8px 10px;
+    gap: 4px;
     border-radius: 0;
     border-left: none;
     border-right: none;
     border-bottom: none;
   }
-  .tl-top { gap: 8px; }
-  .tl-bot { gap: 8px; }
-  .timeline-play-btn { width: 38px; height: 38px; }
-  .timeline-play-btn svg { width: 20px; height: 20px; }
-  .timeline-btn { width: 32px; height: 32px; }
-  .timeline-speed { font-size: 13px; padding: 5px 8px; }
+  .tl-top { gap: 6px; }
+  .tl-bot { gap: 6px; }
+  .timeline-play-btn { width: 32px; height: 32px; }
+  .timeline-play-btn svg { width: 18px; height: 18px; }
+  .timeline-btn { width: 28px; height: 28px; }
+  .timeline-speed { font-size: 12px; padding: 3px 6px; }
   .timeline-scrub-wrap { flex: 1; min-width: 0; }
-  .timeline-reset-btn { padding: 6px 14px; font-size: 13px; }
-  .timeline-spinner-wrap { width: 18px; }
-  .tl-live-dot { width: 7px; height: 7px; }
+  .timeline-reset-btn { padding: 4px 10px; font-size: 12px; }
+  .timeline-spinner-wrap { width: 14px; }
+  .tl-live-dot { width: 6px; height: 6px; }
 
-  .acq-badge { font-size: 11px; left: 12px; top: -10px; transform: translateY(-100%); }
-
-  .maplibregl-ctrl-scale { margin-bottom: 110px !important; }
+  .maplibregl-ctrl-scale { margin-bottom: 75px !important; }
 }
 
 /* ── Small Phones ───────────────────────── */
@@ -1235,7 +1236,7 @@ select.input-text { cursor: pointer; max-width: 200px; }
 
   .sidebar-toggle { top: 44px; left: 4px; width: 26px; height: 26px; }
   .theme-toggle { width: 28px; height: 28px; font-size: 14px; }
-  .legend-toggle { width: 28px; height: 28px; top: 4px; right: 4px; }
+  .legend-toggle { width: 28px; height: 28px; top: -4px; right: 4px; transform: translateY(-100%); }
 
   .maplibregl-ctrl-scale { margin-bottom: 100px !important; }
 }
