@@ -1075,7 +1075,7 @@ select.input-text { cursor: pointer; max-width: 200px; }
   .btn { padding: 4px 8px; font-size: 11px; }
   .input-text { font-size: 11px; padding: 3px 6px; max-width: 110px; }
   .date-input,
-  .timeline-bar .date-input { font-size: 14px; padding: 6px 10px; width: 220px; min-width: 0; max-width: none; }
+  .timeline-bar .date-input { font-size: 15px; padding: 7px 10px; flex: 1; width: auto; max-width: none; }
   .control-label { font-size: 11px; display: none; }
   .sat-row { gap: 4px; flex-wrap: nowrap; }
 
@@ -1173,19 +1173,22 @@ select.input-text { cursor: pointer; max-width: 200px; }
   /* ── Mobile Timeline ────────────────── */
   .timeline-bar {
     padding: 10px 12px;
-    gap: 10px;
-    flex-wrap: wrap;
+    gap: 8px;
     border-radius: 0;
     border-left: none;
     border-right: none;
     border-bottom: none;
   }
-  .timeline-play-btn { width: 36px; height: 36px; }
+  .tl-top { gap: 8px; }
+  .tl-bot { gap: 8px; }
+  .timeline-play-btn { width: 38px; height: 38px; }
+  .timeline-play-btn svg { width: 20px; height: 20px; }
   .timeline-btn { width: 32px; height: 32px; }
-  .timeline-speed { font-size: 13px; padding: 4px 8px; }
-  .timeline-scrub-wrap { min-width: 60px; }
-  .timeline-reset-btn { padding: 5px 12px; font-size: 12px; }
-  .timeline-spinner-wrap { width: 16px; }
+  .timeline-speed { font-size: 13px; padding: 5px 8px; }
+  .timeline-scrub-wrap { flex: 1; min-width: 0; }
+  .timeline-reset-btn { padding: 6px 14px; font-size: 13px; }
+  .timeline-spinner-wrap { width: 18px; }
+  .tl-live-dot { width: 7px; height: 7px; }
 
   .acq-badge { font-size: 11px; left: 12px; top: -10px; transform: translateY(-100%); }
 }
@@ -1212,25 +1215,24 @@ select.input-text { cursor: pointer; max-width: 200px; }
   .btn { padding: 3px 6px; font-size: 10px; }
   .input-text { font-size: 10px; max-width: 90px; }
   .date-input,
-  .timeline-bar .date-input { font-size: 13px; padding: 5px 8px; width: 200px; min-width: 0; max-width: none; }
+  .timeline-bar .date-input { font-size: 13px; padding: 5px 8px; flex: 1; width: auto; max-width: none; }
 
   .timeline-bar {
     padding: 8px 10px;
-    gap: 8px;
+    gap: 6px;
     border-radius: 0;
     border-left: none;
     border-right: none;
     border-bottom: none;
   }
-  .timeline-scrub-wrap {
-    order: 10;
-    width: 100%;
-    flex-basis: 100%;
-  }
+  .tl-top { gap: 6px; }
+  .tl-bot { gap: 6px; }
   .timeline-speed { font-size: 12px; }
   .timeline-play-btn { width: 34px; height: 34px; }
+  .timeline-play-btn svg { width: 18px; height: 18px; }
   .timeline-btn { width: 30px; height: 30px; }
-  .timeline-reset-btn { padding: 4px 10px; font-size: 11px; }
+  .timeline-reset-btn { padding: 5px 10px; font-size: 12px; }
+  .timeline-scrub-wrap { flex: 1; min-width: 0; }
 
   .sidebar-toggle { top: 44px; left: 4px; width: 26px; height: 26px; }
   .theme-toggle { top: 44px; left: auto; right: 4px; width: 26px; height: 26px; font-size: 14px; }
@@ -1240,15 +1242,15 @@ select.input-text { cursor: pointer; max-width: 200px; }
 /* ── Timeline Bar ─────────────────────── */
 .timeline-bar {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   background: var(--color-bg-panel);
   backdrop-filter: var(--blur-panel);
   -webkit-backdrop-filter: var(--blur-panel);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
-  padding: 6px 12px;
+  padding: 8px 12px;
   font: var(--font-ui);
   transition: background var(--transition-fast);
 }
@@ -1256,6 +1258,58 @@ select.input-text { cursor: pointer; max-width: 200px; }
   border-color: var(--color-accent);
   box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.15), var(--shadow-md);
 }
+
+.tl-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tl-bot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Desktop: single row — flatten tl-wrappers with display:contents */
+@media (min-width: 769px) {
+  .timeline-bar {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+  }
+  .tl-top,
+  .tl-bot {
+    display: contents;
+  }
+  /* Reorder: play(1) speed(2) date(3) scrubber(4) live(5) spinner(6) */
+  .tl-bot .timeline-play-btn { order: 1; }
+  .tl-bot .timeline-speed    { order: 2; }
+  .tl-top .date-input        { order: 3; }
+  .tl-bot .timeline-scrub-wrap { order: 4; flex: 1; min-width: 80px; }
+  .tl-top .timeline-reset-btn  { order: 5; }
+  .tl-bot .timeline-spinner-wrap { order: 6; }
+}
+
+/* ── Live dot ──────────────────────────── */
+.tl-live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  margin-right: 4px;
+  flex-shrink: 0;
+  animation: pulse-live 1.5s ease-in-out infinite;
+}
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.6); }
+}
+
+/* ── Timeline buttons ──────────────────── */
 
 .timeline-btn {
   width: 30px;
@@ -1284,11 +1338,20 @@ select.input-text { cursor: pointer; max-width: 200px; }
 .timeline-reset-btn {
   width: auto;
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
-  font-size: 11px;
+  padding: 5px 12px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--color-accent);
-  border-color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #fff;
+  background: #22c55e;
+  border-color: #22c55e;
+  white-space: nowrap;
+}
+.timeline-reset-btn:hover {
+  background: #16a34a;
+  border-color: #16a34a;
 }
 
 

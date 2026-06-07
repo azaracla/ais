@@ -70,75 +70,81 @@ export default function Timeline({
 
   return (
     <div className={`timeline-bar${isActive ? " active" : ""}`}>
-      <button
-        className="timeline-btn timeline-play-btn"
-        onClick={onTogglePlay}
-        title={playing ? "Pause" : "Play"}
-      >
-        {playing ? (
-          <svg width="16" height="16" viewBox="0 0 16 16">
-            <rect x="2" y="1.5" width="4" height="13" rx="1" fill="currentColor" />
-            <rect x="10" y="1.5" width="4" height="13" rx="1" fill="currentColor" />
-          </svg>
-        ) : (
-          <svg width="16" height="16" viewBox="0 0 16 16">
-            <polygon points="3,2 14,8 3,14" fill="currentColor" />
-          </svg>
-        )}
-      </button>
-
-      <input
-        type="datetime-local"
-        className="date-input input-text"
-        value={date.slice(0, 16)}
-        onChange={handleDateChange}
-      />
-
-      <div className="timeline-scrub-wrap">
+      {/* Top row: date/time — "what & when" */}
+      <div className="tl-top">
         <input
-          type="range"
-          className="timeline-scrub"
-          min={0}
-          max={1}
-          step={0.0001}
-          value={fraction}
-          onChange={handleScrub}
+          type="datetime-local"
+          className="date-input input-text"
+          value={date.slice(0, 16)}
+          onChange={handleDateChange}
         />
-        <div className="timeline-ticks">
-          <span>0h</span>
-          <span>6h</span>
-          <span>12h</span>
-          <span>18h</span>
-          <span>24h</span>
-        </div>
+        {isActive && (
+          <button
+            className="timeline-btn timeline-reset-btn"
+            onClick={handleReset}
+            title="Back to live"
+          >
+            <span className="tl-live-dot" />
+            Live
+          </button>
+        )}
       </div>
 
-      <select
-        className="timeline-speed"
-        value={speed}
-        onChange={(e) => onSpeedChange(Number(e.target.value))}
-        title="Playback speed"
-      >
-        {speedOptions.map((s) => (
-          <option key={s} value={s}>
-            {s}x
-          </option>
-        ))}
-      </select>
-
-      {isActive && (
+      {/* Bottom row: transport controls + scrubber — "playback" */}
+      <div className="tl-bot">
         <button
-          className="timeline-btn timeline-reset-btn"
-          onClick={handleReset}
-          title="Back to live"
+          className="timeline-btn timeline-play-btn"
+          onClick={onTogglePlay}
+          title={playing ? "Pause" : "Play"}
         >
-          Live
+          {playing ? (
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <rect x="2" y="2" width="5" height="14" rx="1" fill="currentColor" />
+              <rect x="11" y="2" width="5" height="14" rx="1" fill="currentColor" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <polygon points="4,2 16,9 4,16" fill="currentColor" />
+            </svg>
+          )}
         </button>
-      )}
 
-      <span className="timeline-spinner-wrap">
-        {loading && <span className="spinner-sm" />}
-      </span>
+        <select
+          className="timeline-speed"
+          value={speed}
+          onChange={(e) => onSpeedChange(Number(e.target.value))}
+          title="Playback speed"
+        >
+          {speedOptions.map((s) => (
+            <option key={s} value={s}>
+              {s}x
+            </option>
+          ))}
+        </select>
+
+        <div className="timeline-scrub-wrap">
+          <input
+            type="range"
+            className="timeline-scrub"
+            min={0}
+            max={1}
+            step={0.0001}
+            value={fraction}
+            onChange={handleScrub}
+          />
+          <div className="timeline-ticks">
+            <span>0h</span>
+            <span>6h</span>
+            <span>12h</span>
+            <span>18h</span>
+            <span>24h</span>
+          </div>
+        </div>
+
+        <span className="timeline-spinner-wrap">
+          {loading && <span className="spinner-sm" />}
+        </span>
+      </div>
     </div>
   );
 }
