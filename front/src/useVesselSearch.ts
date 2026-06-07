@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { getAllVessels, isReady } from "./duckdb";
+import { getAllVessels } from "./duckdb";
 import type { VesselSummary } from "./types";
 
 export function useVesselSearch() {
@@ -7,21 +7,18 @@ export function useVesselSearch() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const allVessels = useRef<VesselSummary[]>([]);
+  const loadedRef = useRef(false);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (isReady()) {
-        clearInterval(interval);
-        getAllVessels()
-          .then((c) => {
-            setCache(c);
-            allVessels.current = Array.from(c.values());
-            setReady(true);
-          })
-          .catch((e) => setError(e.message ?? "Failed to load vessel index"));
-      }
-    }, 200);
-    return () => clearInterval(interval);
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    getAllVessels()
+      .then((c) => {
+        setCache(c);
+        allVessels.current = Array.from(c.values());
+        setReady(true);
+      })
+      .catch((e) => setError(e.message ?? "Failed to load vessel index"));
   }, []);
 
   const search = useCallback(

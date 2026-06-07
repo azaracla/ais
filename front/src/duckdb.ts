@@ -7,6 +7,7 @@ import { shipTypeAISToCategory } from "./types";
 let db: duckdb.AsyncDuckDB | null = null;
 let conn: duckdb.AsyncDuckDBConnection | null = null;
 let initPromise: Promise<void> | null = null;
+let duckDbReady = false;
 let querySeq = 0;
 
 export function cancelQuery(): Promise<boolean> {
@@ -18,7 +19,7 @@ export function cancelQuery(): Promise<boolean> {
 }
 
 export function isReady() {
-  return db !== null && conn !== null;
+  return duckDbReady;
 }
 
 export async function initDuckDB(): Promise<void> {
@@ -46,6 +47,7 @@ export async function initDuckDB(): Promise<void> {
     const r = await conn.query("SELECT COUNT(*) as cnt FROM ais.vessels_positions LIMIT 1;");
     const cnt = r.toArray()[0]?.cnt ?? 0;
     console.log("[DuckDB] Initialized. Records:", cnt);
+    duckDbReady = true;
   })();
 
   return initPromise;
@@ -174,6 +176,7 @@ export async function getAllVessels(): Promise<Map<number, VesselSummary>> {
   if (vesselCachePromise) return vesselCachePromise;
 
   vesselCachePromise = (async () => {
+    if (!duckDbReady) await initDuckDB();
     if (!conn) throw new Error("DuckDB not initialized");
     const sql = `SELECT mmsi, name, ship_type FROM ais.vessels WHERE name IS NOT NULL`;
     const t0 = performance.now();
@@ -200,6 +203,7 @@ export async function getAllVessels(): Promise<Map<number, VesselSummary>> {
 }
 
 export async function getVesselDetail(mmsi: number): Promise<VesselDetail | null> {
+  if (!duckDbReady) await initDuckDB();
   if (!conn) throw new Error("DuckDB not initialized");
 
   const sql = `
