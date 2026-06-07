@@ -76,9 +76,24 @@ Global model forced to predict 0.5h and 168h with same parameters → log-varian
 ### Caveat
 At inference, need to pick which model to use (true TTA unknown). Solution: use eta_naive_h (dist/sog) as first-stage router. Mis-routing cost is bounded.
 
+## Router analysis — 2026-06-07
+- LightGBM classifier router: 53.6% test accuracy, 87.2% adjacent (±1 bin)
+- Hard router MAE: 11.0h (close to global model v4 at 11.1h)
+- Soft (weighted) router MAE: 14.5h (worse — probabilities too spread)
+- Oracle (true bin) MAE: 3.5h (upper bound)
+- **Conclusion**: Router can't distinguish 6-24h from 1-3d from 3-8d (recall 10-17%). Per-horizon models show potential but routing is the bottleneck. For deployment, use global model with confidence flags (high for <6h TTA, medium for <24h, low beyond).
+
+## Final production recommendation
+- **Model**: Global LightGBM v4 (MAE 11.1h, simple, no routing needed)
+- **Confidence**: Flag predictions as high/medium/low based on predicted TTA
+  - <6h: high confidence (±1h actual MAE)
+  - 6-24h: medium confidence (±4h)
+  - >24h: low confidence (±30h)
+- **Inference module**: `ml/inference.py` with pre-loaded models
+
 ## Next ideas
-1. **Inference router** — classifier to pick the right horizon model from eta_naive + features
-2. **Quantile regression** — prediction intervals (P10/P90) for uncertainty quantification
-3. **Port-specific features** — average waiting time, congestion at destination port
-4. **Weather data** — wind, waves, currents along route
-5. **Production deployment** — package models, inference API
+1. **Better routing** — hierarchical binary classifiers (cascade) instead of flat 5-way
+2. **Quantile regression** — prediction intervals (P10/P90)
+3. **Trajectory features** — not just current snapshot but path shape over last N hours
+4. **Port-specific features** — average waiting time, congestion
+5. **Weather data** — wind, waves, currents along route

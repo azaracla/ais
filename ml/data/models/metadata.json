@@ -1,0 +1,165 @@
+{
+  "horizon_bins": [
+    [
+      0,
+      1,
+      "0-1h"
+    ],
+    [
+      1,
+      6,
+      "1-6h"
+    ],
+    [
+      6,
+      24,
+      "6-24h"
+    ],
+    [
+      24,
+      72,
+      "1-3d"
+    ],
+    [
+      72,
+      200,
+      "3-8d"
+    ]
+  ],
+  "feature_names": [
+    "dist_to_dest_km",
+    "sog",
+    "cog",
+    "bearing_offset_deg",
+    "vessel_length",
+    "vessel_width",
+    "length_width_ratio",
+    "hour_of_day",
+    "day_of_week",
+    "avg_sog_1h",
+    "avg_sog_6h",
+    "avg_sog_24h",
+    "sog_trend_1h",
+    "mmsi_avg_sog",
+    "sog_vs_mmsi_avg",
+    "eta_naive_h",
+    "st_0",
+    "st_20",
+    "st_30",
+    "st_31",
+    "st_33",
+    "st_36",
+    "st_37",
+    "st_40",
+    "st_49",
+    "st_50",
+    "st_51",
+    "st_52",
+    "st_55",
+    "st_57",
+    "st_60",
+    "st_61",
+    "st_69",
+    "st_70",
+    "st_71",
+    "st_72",
+    "st_73",
+    "st_74",
+    "st_75",
+    "st_79",
+    "st_80",
+    "st_81",
+    "st_82",
+    "st_83",
+    "st_84",
+    "st_89",
+    "st_90",
+    "st_99",
+    "st_other"
+  ],
+  "numeric_features": [
+    "dist_to_dest_km",
+    "sog",
+    "cog",
+    "bearing_offset_deg",
+    "vessel_length",
+    "vessel_width",
+    "length_width_ratio",
+    "hour_of_day",
+    "day_of_week",
+    "avg_sog_1h",
+    "avg_sog_6h",
+    "avg_sog_24h",
+    "sog_trend_1h",
+    "mmsi_avg_sog",
+    "sog_vs_mmsi_avg",
+    "eta_naive_h"
+  ],
+  "ship_type_min_count": 500,
+  "top_ship_types": [
+    0,
+    20,
+    30,
+    31,
+    33,
+    36,
+    37,
+    40,
+    49,
+    50,
+    51,
+    52,
+    55,
+    57,
+    60,
+    61,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    79,
+    80,
+    81,
+    82,
+    83,
+    84,
+    89,
+    90,
+    99
+  ],
+  "metrics": {
+    "0-1h": {
+      "mae": 0,
+      "within_6h": 1.0,
+      "n_train": 41844.0,
+      "n_test": 12219.0
+    },
+    "1-6h": {
+      "mae": 0,
+      "within_6h": 1.0,
+      "n_train": 62794.0,
+      "n_test": 17121.0
+    },
+    "6-24h": {
+      "mae": 4,
+      "within_6h": 0.7629310344827587,
+      "n_train": 23894.0,
+      "n_test": 5104.0
+    },
+    "1-3d": {
+      "mae": 14,
+      "within_6h": 0.24866225999370475,
+      "n_train": 16940.0,
+      "n_test": 3177.0
+    },
+    "3-8d": {
+      "mae": 27,
+      "within_6h": 0.1509985387238188,
+      "n_train": 13220.0,
+      "n_test": 2053.0
+    }
+  }
+}
