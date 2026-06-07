@@ -1,99 +1,100 @@
 # ML ETA Prediction — Progress Log
 
-## v2 (baseline)
-- 10 features: dist_to_dest_km, sog, cog, bearing_offset_deg, vessel_length, vessel_width, length_width_ratio, ship_type (raw int), hour_of_day, day_of_week
-- XGBoost 300 estimators, max_depth=6, lr=0.05
-- Test MAE: 23.1h, R²: 0.08
-- 198,366 rows, 11 time horizons
+## Summary of all versions
 
-## v3 — 2026-06-07
-### Changes
-- **eta_naive_h** = dist_to_dest_km / max(sog, 1.0) — ratio feature XGBoost can't learn from trees alone
-- **Historical SOG**: avg_sog_1h, avg_sog_6h, avg_sog_24h (epoch-based DuckDB window functions)
-- **sog_trend_1h**: current SOG minus avg of previous hour (acceleration/deceleration signal)
-- **One-hot ship_type**: 32 top types (≥500 occurrences) + "other" category (replaced raw integer)
-- COALESCE NULLs to current SOG for first positions of each MMSI
+| Version | Approach | Test MAE | R² | Key innovation |
+|---|---|---|---|---|
+| v2 | XGBoost baseline | 23.1h | 0.08 | 10 features |
+| v3 | +eta_naive +hist SOG +one-hot | 15.4h | -0.12 | Ratio feature, ship_type OH |
+| v4 | +log-transform +sample weights | 11.1h | -0.12 | Log-target, LightGBM |
+| v5 oracle | Per-horizon (perfect routing) | 3.5h | 0.90 | Specialized models per bin |
+| v5 practical | LGBM 5-way router | 11.0h | - | Router bottleneck (53.6% acc) |
+| v6 cascade | Binary cascade router | 26.8h | - | Cascade errors compound |
+| **v6 global** | **Single model, all features** | **10.4h** | **-0.03** | **No routing needed** |
+| v6 oracle | Per-horizon v6 features | 3.3h | 0.91 | Best possible with current data |
 
-### Results
-- **Test MAE: 15.4h** (-33% vs v2)
-- Within 12h: 61.4% (×2 vs v2)
-- Within 24h: 84.7%
-- <50km MAE: 9.2h
-- 47 features (14 numeric + 33 one-hot)
-- Top features: ship_type_30 (5.8%), eta_naive_h (5.3%), sog (5.2%), dist_to_dest_km (4.2%)
-- Still over-predicts (35.7% >10h late) but much less than v2 (53.4%)
+**Current best practical model: v6 global at 10.4h MAE** (down from 23.1h v2 = 55% reduction).
+
+## v6 — 2026-06-07
+### New features added
+- **navigational_status** (one-hot): 0=underway, 1=anchor, 5=moored, etc. 8 categories + other
+- **heading_offset_deg**: |COG - true_heading| — vessel sideslip/drift signal
+- **heading_std_1h**: variance of true_heading over last hour — course stability
+- **avg_heading_1h**: average heading over last hour
+- **rate_of_turn**: turning intensity (-128 = AIS "no data" → cleaned to 0)
+- **rot_available**: binary flag for rate_of_turn availability
+- **closing_speed_kmh**: (prev_dist - curr_dist) / time_gap from consecutive samples
+- **approach_efficiency**: closing_speed / SOG — 0=sideways, 1=straight to port
+- Total: 23 numeric + 32 ship_type OH + 9 nav_status OH + 1 other = **65 features**
+
+### Feature importance (top 10, by gain)
+1. eta_naive_h (12.3%) — ratio feature still #1
+2. approach_efficiency (10.1%) — NEW, best trajectory signal
+3. closing_speed_kmh (8.8%) — NEW, rate of approach
+4. dist_to_dest_km (8.2%)
+5. sog_trend_1h (6.8%)
+6. avg_sog_1h (5.4%)
+7. heading_std_1h (4.6%) — NEW, course stability
+8. bearing_offset_deg (4.1%)
+9. sog_vs_mmsi_avg (3.6%)
+10. avg_sog_6h (3.5%)
+
+### Per-horizon breakdown (v6 global model)
+- 0-1h: MAE 0.6h
+- 1-6h: MAE 1.0h
+- 6-24h: MAE 7.6h
+- 1-3d: MAE 38.8h
+- 3-8d: MAE 110.4h
 
 ### Analysis
-- `dist/sog` as standalone predictor is terrible (MAE 2607h!) because SOG can be very low → ratio explodes. But as a feature in XGBoost, it's #2 most important (5.3%).
-- Ship types dominate (6 of top 15 features) → one-hot encoding was crucial.
-- Model still conservative: mean error -1.8h (slight over-predict), P50=-6.7h.
+- Model excellent at <6h (sub-1h MAE) — production-ready for near-arrival predictions
+- Medium horizons (6-24h) decent at 7.6h
+- Long horizons still poor (38-110h) — fundamental limit of single-snapshot prediction
+- approach_efficiency and closing_speed are the best new features — trajectory context matters
+- Navigational status adds modest value (one-hot features low in importance)
+- heading_std_1h is a surprisingly strong signal — course stability correlates with arrival intent
 
-## v4 — 2026-06-07
-### Changes
-- **Log-transform target**: `log1p(y)` → trains in log-space → `expm1` at inference. Critical for skewed distribution.
-- **Sample weighting**: weight = 1/(tta_h + 1). Short horizons get ~100× more weight than long horizons.
-- **LightGBM**: 500 rounds, num_leaves=127, early_stopping=50. Slightly better than XGBoost (11.1h vs 11.2h).
-- **XGBoost**: 500 estimators, max_depth=7, lr=0.03, stronger regularization (alpha=0.5, lambda=2.0).
-- Both models trained on log-target.
+## What doesn't work
+1. **Flat 5-way router**: LGBM classifier at 53.6% accuracy → MAE 11.0h (no improvement over global)
+2. **Cascade binary routers**: Binary errors compound → MAE 26.8h (much worse)
+3. **Soft routing**: Weighted ensemble of all models → MAE 14.5h (worse than global)
+4. **eta_naive as standalone router**: Only 21% exact bin match → useless
 
-### Results
-- **Test MAE: 11.1h** (LightGBM, -28% vs v3)
-- Within 1h: 54.1% (×7.5 vs v3!)
-- Within 6h: 79.1%
-- 0-1h TTA MAE: **0.6h** — excellent near-arrival prediction
-- 1-6h TTA MAE: **1.0h** — very usable
-- <50km MAE: 6.9h
-- R² negative in original space (long-range variance dominates) but within-N-h metrics excellent
-- Train MAE (16.5h) > Test MAE (11.2h) — temporal split, newer data has more short-horizon samples
+## Why routing fails
+- The fundamental problem: distinguishing 6-24h from 1-3d from 3-8d is inherently hard from snapshot features
+- A vessel at 500km going 10kn looks identical whether it's 20h or 50h from arrival (depends on route, stops, currents)
+- eta_naive = dist/sog is too noisy (SOG fluctuates, dist is straight-line not route)
+- Per-horizon models prove it's possible (oracle 3.3h) but no practical router achieves this
 
-### Analysis
-- Model is now essentially a **near-arrival detector**: excellent at <6h, degrades gracefully to 24h, useless beyond 72h
-- eta_naive_h dominates XGBoost importance (11.0%) — the ratio feature finally works with log-transform
-- Sample weighting effectively focuses training on short horizons (70% of test data is <6h TTA)
-- LightGBM marginally better than XGBoost (0.1h MAE difference)
-- 2000+ km bucket has 11.2h MAE — model learns "far = many hours" but doesn't distinguish within far
+## Files
+```
+ml/
+├── detect_arrivals.py    # Arrival detection (2-pass)
+├── fetch_ports.py        # UN/LOCODE download
+├── utils.py              # Haversine, DuckDB catalog, destination cleaning
+├── build_dataset.py      # Feature engineering (v6)
+├── train.py              # XGBoost + LightGBM training (v4)
+├── train_horizon.py      # Per-horizon models + flat router (v5)
+├── train_cascade.py      # Cascade binary router (failed)
+├── train_v6_global.py    # Global model v6 (current best)
+├── tune.py               # Optuna hyperparameter tuning
+├── inference.py          # Inference module
+├── PROGRESS.md           # This file
+├── plan.md               # Original plan
+└── data/
+    ├── arrivals.parquet           # 71K arrivals
+    ├── positions_filtered.parquet  # 97M positions (now with nav_status, rate_of_turn)
+    ├── dataset.parquet            # 198K training samples (v6)
+    ├── ports.parquet              # 93K UN/LOCODE ports
+    ├── models/                    # v5 models + router
+    └── models_cascade/            # v6 cascade models
+```
 
-## v5 (per-horizon) — 2026-06-07
-### Changes
-- **5 specialized LightGBM models**, one per TTA bin: 0-1h, 1-6h, 6-24h, 1-3d, 3-8d
-- Each model trained ONLY on samples in its bin → no cross-horizon interference
-- Added **mmsi_avg_sog** (per-vessel average speed) and **sog_vs_mmsi_avg** (ratio vs vessel average)
-- Optuna-tuned hyperparams (50 trials): num_leaves=88, lr=0.072, bagging_freq=7
-
-### Results
-- **Ensemble MAE: 3.4h** (-69% vs v4, -85% vs v2!)
-- **R²: 0.9015** (vs -0.12 for v4 — paradigm shift)
-- 0-1h bin: **MAE 0.2h** (±12 min), 100% within ±2h
-- 1-6h bin: **MAE 0.9h**, 91% within ±2h
-- 6-24h bin: MAE 4.2h, 79% within ±6h
-- 1-3d bin: MAE 13.9h
-- 3-8d bin: MAE 26.6h
-- Within 6h: 86.9%, Within 24h: 96.0%
-
-### Key insight
-Global model forced to predict 0.5h and 168h with same parameters → log-variance of short horizons destroyed by long-horizon noise. Per-bin models each learn a narrow distribution → log-transform works properly → massive accuracy gain.
-
-### Caveat
-At inference, need to pick which model to use (true TTA unknown). Solution: use eta_naive_h (dist/sog) as first-stage router. Mis-routing cost is bounded.
-
-## Router analysis — 2026-06-07
-- LightGBM classifier router: 53.6% test accuracy, 87.2% adjacent (±1 bin)
-- Hard router MAE: 11.0h (close to global model v4 at 11.1h)
-- Soft (weighted) router MAE: 14.5h (worse — probabilities too spread)
-- Oracle (true bin) MAE: 3.5h (upper bound)
-- **Conclusion**: Router can't distinguish 6-24h from 1-3d from 3-8d (recall 10-17%). Per-horizon models show potential but routing is the bottleneck. For deployment, use global model with confidence flags (high for <6h TTA, medium for <24h, low beyond).
-
-## Final production recommendation
-- **Model**: Global LightGBM v4 (MAE 11.1h, simple, no routing needed)
-- **Confidence**: Flag predictions as high/medium/low based on predicted TTA
-  - <6h: high confidence (±1h actual MAE)
-  - 6-24h: medium confidence (±4h)
-  - >24h: low confidence (±30h)
-- **Inference module**: `ml/inference.py` with pre-loaded models
-
-## Next ideas
-1. **Better routing** — hierarchical binary classifiers (cascade) instead of flat 5-way
-2. **Quantile regression** — prediction intervals (P10/P90)
-3. **Trajectory features** — not just current snapshot but path shape over last N hours
-4. **Port-specific features** — average waiting time, congestion
-5. **Weather data** — wind, waves, currents along route
+## Remaining ideas (ordered by plausible impact)
+1. **Port waiting time features** — average time between arrival detection and "moored" status per port
+2. **Quantile regression** — LightGBM objective='quantile' for P10/P90 intervals
+3. **Trajectory shape** — more than 2 points (e.g., last 3 samples → curvature, acceleration)
+4. **Hybrid physical model** — great-circle route distance instead of haversine, ETA = route_dist / avg_speed + port_wait
+5. **MMSI-level features** — per-vessel historical speed distribution, typical routes
+6. **Weather data** — wind, waves, currents (external API, significant complexity)
+7. **Time-to-destination from AIS messages** — some ShipStaticData may have more precise destination info

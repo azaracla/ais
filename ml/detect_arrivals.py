@@ -66,6 +66,7 @@ def export_data(con, days: list[tuple[int, int, int]] | None = None):
     con.execute(f"""
         COPY (
             SELECT vp.mmsi, vp.ts, vp.lat, vp.lon, vp.sog, vp.cog, vp.true_heading,
+                   vp.navigational_status, vp.rate_of_turn,
                    vp.year, vp.month, vp.day
             FROM ais.vessels_positions vp
             SEMI JOIN target_mmsis t ON vp.mmsi = t.mmsi
