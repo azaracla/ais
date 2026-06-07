@@ -29,12 +29,12 @@ export async function initDuckDB(): Promise<void> {
     db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
     await db.instantiate(duckdb_wasm_eh, "?modulePath=");
 
-    // forceFullHTTPReads doit être explicitement false (défaut: true).
-    // OVH S3 répond correctement au HEAD+Range → reliableHeadRequests: true.
+    // reliableHeadRequests: false — éviter les HEAD requests qui peuvent
+    // retourner des Content-Length inconsistants après ré-upload des fichiers.
     await db.open({
       filesystem: {
         allowFullHTTPReads: false,
-        reliableHeadRequests: true,
+        reliableHeadRequests: false,
         forceFullHTTPReads: false,
       },
     });
@@ -43,6 +43,7 @@ export async function initDuckDB(): Promise<void> {
 
     await conn.query("SET enable_object_cache=true;");
     await conn.query("SET enable_http_metadata_cache=false;");
+    await conn.query("SET enable_external_file_cache=false;");
     await conn.query(
       "ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake' AS ais (TYPE ducklake, DATA_PATH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/', OVERRIDE_DATA_PATH true)"
     );
