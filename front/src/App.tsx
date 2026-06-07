@@ -960,6 +960,8 @@ export default function App() {
       {/* Top bar */}
       <div className="top-bar">
 
+        <div className="top-bar-spacer" />
+
         <button
           className="panel panel-sm theme-toggle"
           onClick={toggleTheme}

@@ -155,6 +155,7 @@ body {
   left: 392px;
 }
 .top-bar > * { pointer-events: auto; }
+.top-bar-spacer { flex: 1; min-width: 0; pointer-events: none; }
 
 /* ── Control Groups ────────────────────── */
 .control-group {
