@@ -17,13 +17,52 @@
 | **v7 deep** | **Two-Stage Full, 5000 trees, deep reg** | **10.0h** | **0.52** | **Breaks 10h barrier** |
 | **v7 adaptive** | **Adaptive 2-stage (TTA<3h→no B)** | **10.0h** | **0.60** | **Soft blending** |
 | v7 hard | Stage B on hard samples only | 10.4h | 0.54 | Better long horizons, worse short |
-| v7 CatBoost | Single-stage, native cat | 14.2h | -0.08 | Underperforms LGBM |
-| v7 XGBoost | Single-stage | 13.0h | 0.07 | Similar to LGBM single |
-| v7 Ensemble | Avg(LGBM+XGB+CB+2stage) | 11.8h | 0.26 | Ensemble worse than 2-stage |
+| **v8 2-stage** | **Native cat + HW loss + interactions** | **10.0h** | **0.53** | **Cleaner architecture, same perf** |
+| **v8 single** | **Single-stage v8 (53 features)** | **12.8h** | **0.10** | **Native cat needs more trees** |
 
-**Current best practical model: v7 adaptive two-stage at 10.0h MAE** (↓ from 14.0h v6 with same split).
+**Current best: v7 deep / v8 two-stage at 10.0h MAE** (↓ from 14.0h v6 with same MMSI split = −29%).
 **Key insight: Two-stage model recovers oracle routing implicitly — no classifier needed.**
-**Critical finding: v6's 10.4h had data leakage (same-vessel in train+test). With MMSI-grouped split: 14.0h. v7 adaptive: 10.0h = 29% real improvement.**
+**Critical finding: v6's 10.4h had data leakage. MMSI split: 14.0h. Real improvement v7/v8: −29%.**
+**⚠️ Plateau atteint: l'approche snapshot plafonne à ~10h. L'oracle (3.3h) prouve que l'info existe, mais inaccessible sans connaître l'horizon.**
+
+## ⚠️ v8 — Le mur de l'information snapshot (2026-06-07)
+
+### Ce qui a été testé
+- **LightGBM natif catégoriel** (ship_type, nav_status) : 53 features au lieu de 85 one-hot → Single-stage moins bon (12.8h vs 12.0h), Two-stage équivalent
+- **Horizon-weighted loss** : poids ×4 sur 3-8d, ×0.3 sur 0-1h → gain marginal (−0.03h)
+- **Interactions** (dist×closing, mmsi_tta_bias, sog_vs_hist, weighted_efficiency) → incluses mais pas game-changing
+- **Anchoring detection** (stationnaire + 10-80km du port) → signal utile mais <5% des samples
+- **Feature pruning** (eta_phys redondants supprimés) → sans impact
+
+### Pourquoi ça plafonne
+À 500km, un navire à 10kn peut être à 20h ou 50h de l'arrivée. Cette ambiguïté est **fondamentale** :
+- La distance haversine ignore les détroits, caps, zones d'attente
+- Le SOG actuel n'est pas prédictif du SOG moyen sur 5 jours
+- Les patterns d'approche portuaire (ancrage, slow steaming, fenêtres de terminal) sont invisibles dans un snapshot
+
+**Le gap oracle (3.3h) vs modèle réel (10.0h) = 6.7h est la borne supérieure de ce qu'on peut gagner avec de meilleures features sur le même paradigme.**
+
+### Prochains vrais leviers (au-delà du snapshot)
+| Levier | Gain estimé | Complexité | Principe |
+|---|---|---|---|
+| **Séquence AIS brute** (LSTM/Transformer) | −2 à −5h | Élevée | 50 dernières positions → pattern de décélération, zigzag, attente |
+| **Plus de données** | −1 à −3h | Dépend | 12 jours = peu de trajets complets. Élargir la fenêtre temporelle |
+| **Routes empiriques** (paires origine→destination) | −1 à −2h | Moyenne | Depuis 71K arrivées, temps de trajet médian par corridor |
+| **Données externes** (météo, courants, port schedules) | −1 à −3h | Très élevée | API météo, accès schedules portuaires |
+
+### Ce qui ne sert à rien de continuer
+- Plus d'arbres (5000 → 10000 : rendement décroissant prouvé)
+- Plus de features snapshot (on a déjà 50+ features, le signal marginal est nul)
+- Autres modèles GBDT (CatBoost, XGBoost : tous moins bons que LightGBM)
+- DART, stacking, log-transform tricks (micro-optimisations sans impact structurel)
+- searoute (librairie de visualisation, pas de routing réel)
+
+### Leçons de v7+v8 pour la suite
+1. Le **split MMSI est obligatoire** — sans ça, l'évaluation est gonflée de ~3.7h
+2. Le **two-stage est la bonne architecture** — R² 0.53 vs −0.03, sans classifier fragile
+3. Les **features MMSI et port** sont les plus utiles des nouvelles (mmsi_avg_tta #2, port_avg_tta top 10)
+4. Les **features de trajectoire 6h** aident modestement (cog_std_6h, sog_range_6h en milieu de classement)
+5. Le **deep training paie** : 2000 → 5000 arbres + régularisation forte = −0.3h constant
 
 ## v7 — 2026-06-07
 ### New features added (22 new numeric + better physics)
