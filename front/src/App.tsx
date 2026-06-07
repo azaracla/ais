@@ -373,7 +373,7 @@ export default function App() {
     );
     map.addControl(
       new maplibregl.ScaleControl({ unit: "metric", maxWidth: 200 }),
-      "bottom-right",
+      "bottom-left",
     );
 
     function initLayers(m: maplibregl.Map) {

@@ -371,6 +371,12 @@ select.input-text { cursor: pointer; max-width: 200px; }
   background: transparent !important;
 }
 
+/* ── Scale Control ─────────────────────── */
+.maplibregl-ctrl-scale {
+  z-index: 20 !important;
+  margin-bottom: 50px !important;
+}
+
 /* ── Popup Overrides ───────────────────── */
 .maplibregl-popup-content {
   background: var(--color-bg-panel) !important;
@@ -1182,6 +1188,8 @@ select.input-text { cursor: pointer; max-width: 200px; }
   .tl-live-dot { width: 7px; height: 7px; }
 
   .acq-badge { font-size: 11px; left: 12px; top: -10px; transform: translateY(-100%); }
+
+  .maplibregl-ctrl-scale { margin-bottom: 110px !important; }
 }
 
 /* ── Small Phones ───────────────────────── */
@@ -1228,6 +1236,8 @@ select.input-text { cursor: pointer; max-width: 200px; }
   .sidebar-toggle { top: 44px; left: 4px; width: 26px; height: 26px; }
   .theme-toggle { width: 28px; height: 28px; font-size: 14px; }
   .legend-toggle { width: 28px; height: 28px; top: 4px; right: 4px; }
+
+  .maplibregl-ctrl-scale { margin-bottom: 100px !important; }
 }
 
 /* ── Timeline Bar ─────────────────────── */
