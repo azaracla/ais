@@ -1,6 +1,6 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
-import duckdb_wasm_eh from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
-import DuckDBWorkerEH from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?worker";
+import duckdb_wasm_mvp from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
+import DuckDBWorkerMVP from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?worker";
 import type { Vessel, Bounds } from "./types";
 import { shipTypeAISToCategory } from "./types";
 
@@ -25,9 +25,9 @@ export async function initDuckDB(): Promise<void> {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    const worker = new DuckDBWorkerEH();
+    const worker = new DuckDBWorkerMVP();
     db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
-    await db.instantiate(duckdb_wasm_eh, "?modulePath=");
+    await db.instantiate(duckdb_wasm_mvp, "?modulePath=");
 
     // reliableHeadRequests: true — le catalog DuckLake est un fichier DuckDB,
     // pas un Parquet, et a besoin des HEAD requests pour les Range.
