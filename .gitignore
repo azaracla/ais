@@ -87,3 +87,7 @@ silver/
 gold/
 vessels.parquet
 .tmp/
+
+# NOAA
+noaa_downloads/
+noaa_output/
