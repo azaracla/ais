@@ -1,11 +1,12 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
 import duckdb_wasm_eh from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import DuckDBWorkerEH from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?worker";
-import type { Vessel, VesselSummary, Bounds, WakePoint } from "./types";
+import type { Vessel, VesselSummary, Bounds, WakePoint, PortCongestion, PortCall } from "./types";
 import { shipTypeAISToCategory } from "./types";
 
 let db: duckdb.AsyncDuckDB | null = null;
 let conn: duckdb.AsyncDuckDBConnection | null = null;
+let portConn: duckdb.AsyncDuckDBConnection | null = null;
 let initPromise: Promise<void> | null = null;
 let duckDbReady = false;
 let querySeq = 0;
@@ -39,8 +40,10 @@ export async function initDuckDB(): Promise<void> {
     });
 
     conn = await db.connect();
+    portConn = await db.connect();
 
     await conn.query("SET enable_object_cache=true;");
+    await conn.query("SET enable_http_metadata_cache=false;");
     await conn.query(
       "ATTACH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake' AS ais (TYPE ducklake, DATA_PATH 'https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/', OVERRIDE_DATA_PATH true)"
     );
@@ -281,6 +284,75 @@ export async function searchVessels(query: string, limit = 15): Promise<VesselSu
     name: row.name ?? "Unknown",
     shipType: shipTypeAISToCategory(row.ship_type != null ? Number(row.ship_type) : null),
   }));
+}
+
+export async function queryPortCongestion(date: string): Promise<PortCongestion[]> {
+  if (!portConn) throw new Error("DuckDB not initialized");
+
+  const dateOnly = date.slice(0, 10);
+  const base = "https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/gold";
+  const sql = `
+    SELECT DISTINCT ON (pcg.port_lo_code)
+      pcg.port_lo_code,
+      pc.port_name,
+      pc.port_lat::DOUBLE AS port_lat,
+      pc.port_lon::DOUBLE AS port_lon,
+      pcg.hour::VARCHAR AS hour,
+      pcg.vessels_in_port::INTEGER AS vessels_in_port,
+      pcg.arrivals::INTEGER AS arrivals,
+      pcg.departures::INTEGER AS departures
+    FROM read_parquet('${base}/port_congestion/port_congestion.parquet') pcg
+    JOIN (
+      SELECT DISTINCT port_lo_code, port_name, port_lat, port_lon
+      FROM read_parquet('${base}/port_calls/port_calls.parquet')
+      WHERE port_lat IS NOT NULL AND port_lon IS NOT NULL
+    ) pc ON pc.port_lo_code = pcg.port_lo_code
+    WHERE pcg.date = '${dateOnly}'
+    ORDER BY pcg.port_lo_code, pcg.hour DESC
+  `;
+
+  const asyncResult = await portConn.send(sql);
+  const rows: any[] = [];
+  for await (const chunk of asyncResult) {
+    rows.push(...chunk);
+  }
+  return rows as PortCongestion[];
+}
+
+export async function queryPortCalls(
+  portLoCode: string,
+  date?: string,
+  limit = 50,
+): Promise<PortCall[]> {
+  if (!portConn) throw new Error("DuckDB not initialized");
+
+  const base = "https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/gold";
+  let filter = `port_lo_code = '${portLoCode.replace(/'/g, "''")}'`;
+  if (date) {
+    filter += ` AND arrival_date = '${date}'`;
+  }
+
+  const sql = `
+    SELECT mmsi, port_lo_code, port_name, port_lat::DOUBLE AS port_lat, port_lon::DOUBLE AS port_lon,
+           arrival_ts::VARCHAR AS arrival_ts,
+           arrival_lat::DOUBLE AS arrival_lat,
+           arrival_lon::DOUBLE AS arrival_lon,
+           departure_ts::VARCHAR AS departure_ts,
+           departure_lat::DOUBLE AS departure_lat,
+           departure_lon::DOUBLE AS departure_lon,
+           destination_clean, detection_method, arrival_date::VARCHAR AS arrival_date
+    FROM read_parquet('${base}/port_calls/port_calls.parquet')
+    WHERE ${filter}
+    ORDER BY arrival_ts DESC
+    LIMIT ${limit}
+  `;
+
+  const asyncResult = await portConn.send(sql);
+  const rows: any[] = [];
+  for await (const chunk of asyncResult) {
+    rows.push(...chunk);
+  }
+  return rows as PortCall[];
 }
 
 function toVessel(row: any): Vessel {

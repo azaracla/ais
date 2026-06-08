@@ -1,4 +1,4 @@
-import type { ShipType, Vessel } from "./types";
+import type { ShipType, Vessel, PortCongestion } from "./types";
 
 const portNames = [
   "Rotterdam", "Hamburg", "Antwerp", "Le Havre", "Marseille",
@@ -114,6 +114,26 @@ export function vesselsToGeoJSON(vessels: Vessel[]): GeoJSON.FeatureCollection {
         shipType: v.shipType,
         destination: v.destination,
         ts: v.ts,
+      },
+    })),
+  };
+}
+
+export function portsToGeoJSON(ports: PortCongestion[]): GeoJSON.FeatureCollection {
+  const maxVessels = Math.max(1, ...ports.map((p) => p.vessels_in_port));
+  return {
+    type: "FeatureCollection",
+    features: ports.map((p) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [p.port_lon, p.port_lat] },
+      properties: {
+        port_lo_code: p.port_lo_code,
+        port_name: p.port_name,
+        hour: p.hour,
+        vessels_in_port: p.vessels_in_port,
+        arrivals: p.arrivals,
+        departures: p.departures,
+        congestion: p.vessels_in_port / maxVessels,
       },
     })),
   };

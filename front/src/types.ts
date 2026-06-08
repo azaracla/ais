@@ -1,6 +1,34 @@
 export type ShipType = "cargo" | "tanker" | "passenger" | "fishing" | "pleasure";
 export type Sensor = "S1" | "S2";
 
+export interface PortCongestion {
+  port_lo_code: string;
+  port_name: string;
+  port_lat: number;
+  port_lon: number;
+  hour: string;
+  vessels_in_port: number;
+  arrivals: number;
+  departures: number;
+}
+
+export interface PortCall {
+  mmsi: number;
+  port_lo_code: string;
+  port_name: string;
+  port_lat: number;
+  port_lon: number;
+  arrival_ts: string;
+  arrival_lat: number;
+  arrival_lon: number;
+  departure_ts: string | null;
+  departure_lat: number | null;
+  departure_lon: number | null;
+  destination_clean: string;
+  detection_method: string;
+  arrival_date: string;
+}
+
 export interface TimelineState {
   playing: boolean;
   speed: number;
