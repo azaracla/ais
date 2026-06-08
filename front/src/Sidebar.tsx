@@ -317,7 +317,7 @@ export default function Sidebar({
                 <div className="sidebar-speed-sliders">
                   <input
                     type="range"
-                    className="speed-range"
+                    className="speed-range speed-range-min"
                     min={0}
                     max={maxSpeed}
                     value={speedRange[0]}
@@ -330,7 +330,7 @@ export default function Sidebar({
                   />
                   <input
                     type="range"
-                    className="speed-range"
+                    className="speed-range speed-range-max"
                     min={0}
                     max={maxSpeed}
                     value={speedRange[1]}
@@ -341,6 +341,11 @@ export default function Sidebar({
                       ])
                     }
                   />
+                </div>
+                <div className="sidebar-speed-ticks">
+                  <span>0 kn</span>
+                  <span>{Math.round(maxSpeed / 2)} kn</span>
+                  <span>{maxSpeed} kn</span>
                 </div>
               </div>
 

@@ -396,22 +396,70 @@ export default function App() {
           data: { type: "FeatureCollection", features: [] },
         });
       }
+
+      // Micro-dots layer (zoom 0–7) — colored circles, no heading
+      if (m.getLayer("vessel-dots")) m.removeLayer("vessel-dots");
+      m.addLayer({
+        id: "vessel-dots",
+        type: "circle",
+        source: "vessels",
+        filter: categoryFilter(activeCategories),
+        minzoom: 0,
+        maxzoom: 8,
+        paint: {
+          "circle-radius": [
+            "interpolate", ["linear"], ["zoom"],
+            2, 1.2,
+            5, 2.0,
+            7, 3.5,
+          ],
+          "circle-color": [
+            "match", ["get", "shipType"],
+            "cargo", "#3b82f6",
+            "tanker", "#ef4444",
+            "passenger", "#22c55e",
+            "fishing", "#f59e0b",
+            "pleasure", "#a855f7",
+            "#888",
+          ],
+          "circle-opacity": [
+            "interpolate", ["linear"], ["zoom"],
+            2, 0.35,
+            4, 0.65,
+            6, 0.8,
+            7.5, 0,
+          ],
+          "circle-stroke-width": 0,
+        },
+      });
+
+      // Ship icon layer (zoom 6.5+) — fades in over dots
       if (m.getLayer("vessel-point")) m.removeLayer("vessel-point");
       m.addLayer({
         id: "vessel-point",
         type: "symbol",
         source: "vessels",
         filter: categoryFilter(activeCategories),
+        minzoom: 6.5,
         layout: {
           "icon-image": iconImageExpr(),
           "icon-rotate": ["get", "heading"],
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
-          "icon-size": 0.65,
+          "icon-size": [
+            "interpolate", ["linear"], ["zoom"],
+            7, 0.35,
+            9, 0.50,
+            12, 0.65,
+          ],
         },
         paint: {
-          "icon-opacity": 0.9,
+          "icon-opacity": [
+            "interpolate", ["linear"], ["zoom"],
+            6.5, 0,
+            7.5, 0.9,
+          ],
           "icon-opacity-transition": { duration: 300 },
         },
       });
@@ -672,9 +720,24 @@ export default function App() {
         hoverPopup.remove();
         m.getCanvas().style.cursor = "";
       });
+      m.on("mousemove", "vessel-dots", (e) => {
+        const f = e.features?.[0];
+        if (!f?.properties) return;
+        m.getCanvas().style.cursor = "pointer";
+        hoverPopup
+          .setLngLat(e.lngLat)
+          .setHTML(
+            `<span class="hover-tooltip-text">${escapeHtml(f.properties.name)} &middot; ${Number(f.properties.speed).toFixed(1)} kn &middot; ${f.properties.heading}&deg;</span>`,
+          )
+          .addTo(m);
+      });
+      m.on("mouseleave", "vessel-dots", () => {
+        hoverPopup.remove();
+        m.getCanvas().style.cursor = "";
+      });
 
       // Vessel click: radius + trajectory + sidebar selection
-      m.on("click", "vessel-point", async (e) => {
+      const handleVesselClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
         const f = e.features?.[0];
         if (!f) return;
         const p = f.properties;
@@ -785,13 +848,16 @@ export default function App() {
               setTrajectoryStatus("error");
             });
         }
-      });
+      };
+
+      m.on("click", "vessel-point", handleVesselClick);
+      m.on("click", "vessel-dots", handleVesselClick);
 
       // Click off vessel/port → clear selection
       m.on("click", (e) => {
         if (
           m.queryRenderedFeatures(e.point, {
-            layers: ["vessel-point", "ports-congestion"],
+            layers: ["vessel-point", "vessel-dots", "ports-congestion"],
           }).length > 0
         )
           return;
@@ -926,10 +992,10 @@ export default function App() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourceReady) return;
-    const layer = map.getLayer("vessel-point");
-    if (layer) {
-      map.setFilter("vessel-point", categoryFilter(activeCategories));
-    }
+    const filter = categoryFilter(activeCategories);
+    if (map.getLayer("vessel-dots")) map.setFilter("vessel-dots", filter);
+    if (map.getLayer("vessel-point")) map.setFilter("vessel-point", filter);
+    if (map.getLayer("vessel-label")) map.setFilter("vessel-label", filter);
   }, [activeCategories, sourceReady]);
 
   // Toggle vessel name labels
@@ -943,6 +1009,7 @@ export default function App() {
           type: "symbol",
           source: "vessels",
           filter: categoryFilter(activeCategories),
+          minzoom: 8,
           layout: {
             "text-field": ["get", "name"],
             "text-font": ["Open Sans Semibold"],
