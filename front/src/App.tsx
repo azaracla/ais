@@ -465,7 +465,10 @@ export default function App() {
         const popupColor = popupMeta?.color ?? "#888";
 
         const popupVessel = displayVessels.find((v) => v.id === mmsi);
-        if (!popupVessel) return;
+        if (!popupVessel) {
+          console.warn(`[VesselPopup] Vessel with MMSI ${mmsi} not found in displayVessels (count: ${displayVessels.length})`);
+          return;
+        }
 
         // Close existing popup
         vesselDetailPopupRef.current?.remove();
