@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { initDuckDB, isReady, queryLastPositions, cancelQuery } from "./duckdb";
-import type { Vessel, Bounds } from "./types";
+import { initDuckDB, isReady, queryLastPositions, cancelQuery } from "../duckdb";
+import type { Vessel, Bounds } from "../types";
 
 const DEBOUNCE_MS = 400;
 const BOUNDS_BUFFER = 3;

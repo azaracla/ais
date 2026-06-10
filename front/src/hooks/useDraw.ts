@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
-import type { Bounds } from "./types";
+import type { Bounds } from "../types";
 
 export type DrawMode = "idle" | "drawing";
 

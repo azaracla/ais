@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Bounds, Sensor } from "./types";
+import type { Bounds, Sensor } from "../types";
 
 const API_BASE = import.meta.env.VITE_SATELLITE_PROXY_URL ?? "http://localhost:8000";
 

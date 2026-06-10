@@ -1,6 +1,6 @@
 import type { Sensor } from "./types";
-import type { SatelliteState } from "./useSatellite";
-import type { DrawMode } from "./useDraw";
+import type { SatelliteState } from "./hooks/useSatellite";
+import type { DrawMode } from "./hooks/useDraw";
 
 const SENSOR_LABELS: Record<Sensor, string> = {
   S1: "Sentinel-1 (Radar)",

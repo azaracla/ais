@@ -3,220 +3,25 @@ import "./style.css";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import maplibregl from "maplibre-gl";
-import { useVessels } from "./useVessels";
-import { useTimeline } from "./useTimeline";
+import { useVessels } from "./hooks/useVessels";
+import { useTimeline } from "./hooks/useTimeline";
 import { queryVesselHistory, queryPortCalls } from "./duckdb";
-import { useSatellite } from "./useSatellite";
-import { useDraw } from "./useDraw";
-import Timeline from "./Timeline";
+import { useSatellite } from "./hooks/useSatellite";
+import { useDraw } from "./hooks/useDraw";
 import Sidebar from "./Sidebar";
 import VesselPopup from "./VesselPopup";
+import BottomBar from "./components/BottomBar";
+import TopBar, { StatusBadge, Spinner } from "./components/TopBar";
 import { vesselsToGeoJSON, portsToGeoJSON } from "./mockData";
 import type { Bounds, Sensor, ShipType } from "./types";
-import { usePorts } from "./usePorts";
-
-const VESSEL_META = [
-  { key: "cargo", color: "#3b82f6", label: "Cargo" },
-  { key: "tanker", color: "#ef4444", label: "Tanker" },
-  { key: "passenger", color: "#22c55e", label: "Passenger" },
-  { key: "fishing", color: "#f59e0b", label: "Fishing" },
-  { key: "pleasure", color: "#a855f7", label: "Pleasure" },
-];
-
-const BASEMAP_LIGHT = {
-  version: 8 as const,
-  sources: {
-    basemap: {
-      type: "raster" as const,
-      tiles: [
-        "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-        "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-        "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-        "https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-      ],
-      tileSize: 256,
-      attribution:
-        '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://openstreetmap.org">OSM</a>',
-    },
-  },
-  layers: [{ id: "basemap", type: "raster" as const, source: "basemap" }],
-};
-
-const BASEMAP_DARK = {
-  version: 8 as const,
-  sources: {
-    basemap: {
-      type: "raster" as const,
-      tiles: [
-        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-        "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-      ],
-      tileSize: 256,
-      attribution:
-        '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://openstreetmap.org">OSM</a>',
-    },
-  },
-  layers: [{ id: "basemap", type: "raster" as const, source: "basemap" }],
-};
-
-/* ── Ship-shaped vessel icons ─────────── */
-
-function drawShipIcon(
-  color: string,
-  size: number,
-  theme: "light" | "dark",
-): ImageData {
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  const cx = size / 2;
-  const cy = size / 2;
-  const s = size; // use full canvas
-
-  ctx.save();
-  ctx.translate(cx, cy);
-
-  // Glow
-  const glow = ctx.createRadialGradient(0, 0, s * 0.08, 0, 0, s * 0.55);
-  const glowAlpha = theme === "dark" ? 0.35 : 0.18;
-  glow.addColorStop(0, color + Math.round(glowAlpha * 255).toString(16).padStart(2, "0"));
-  glow.addColorStop(1, "transparent");
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(0, 0, s * 0.55, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Hull — elongated ellipse pointing up (heading = up on canvas)
-  const hullLen = s * 0.4;
-  const hullW = s * 0.22;
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.ellipse(0, s * 0.06, hullW, hullLen, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Bow point (nose at top)
-  ctx.beginPath();
-  ctx.moveTo(0, -(s * 0.44));
-  ctx.lineTo(-hullW * 0.5, -(hullLen * 0.4));
-  ctx.lineTo(hullW * 0.5, -(hullLen * 0.4));
-  ctx.closePath();
-  ctx.fill();
-
-  // Superstructure (bridge)
-  ctx.fillStyle = lightenColor(color, 0.25);
-  ctx.beginPath();
-  ctx.roundRect(-hullW * 0.45, -hullLen * 0.5, hullW * 0.9, hullLen * 0.55, s * 0.08);
-  ctx.fill();
-
-  // Mast (vertical line)
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.max(1, s * 0.06);
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(0, -s * 0.44);
-  ctx.lineTo(0, -s * 0.48);
-  ctx.stroke();
-
-  // Outline for definition
-  ctx.strokeStyle = theme === "dark" ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.25)";
-  ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  ctx.ellipse(0, s * 0.06, hullW, hullLen, 0, 0, Math.PI * 2);
-  ctx.moveTo(0, -(s * 0.44));
-  ctx.lineTo(-hullW * 0.5, -(hullLen * 0.4));
-  ctx.lineTo(hullW * 0.5, -(hullLen * 0.4));
-  ctx.closePath();
-  ctx.stroke();
-
-  ctx.restore();
-  return ctx.getImageData(0, 0, size, size);
-}
-
-function lightenColor(hex: string, amount: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  const lr = Math.min(255, Math.round(r + (255 - r) * amount));
-  const lg = Math.min(255, Math.round(g + (255 - g) * amount));
-  const lb = Math.min(255, Math.round(b + (255 - b) * amount));
-  return `rgb(${lr},${lg},${lb})`;
-}
-
-const ICON_SIZE = 22;
-const ARROW_SIZE = 10;
-
-/* ── Bearing between two coordinates ───── */
-function bearing(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
-  const y = Math.sin(Δλ) * Math.cos(φ2);
-  const x =
-    Math.cos(φ1) * Math.sin(φ2) -
-    Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-}
-
-/* ── Arrow icon for trajectory direction ── */
-function makeArrowIcon(color: string, theme: "light" | "dark"): ImageData {
-  const s = ARROW_SIZE;
-  const canvas = document.createElement("canvas");
-  canvas.width = s;
-  canvas.height = s;
-  const ctx = canvas.getContext("2d")!;
-  const cx = s / 2;
-  const cy = s / 2;
-
-  // Arrow pointing up (0° = north)
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - s * 0.45);          // tip
-  ctx.lineTo(cx + s * 0.4, cy + s * 0.45); // bottom-right
-  ctx.lineTo(cx + s * 0.12, cy + s * 0.15);
-  ctx.lineTo(cx - s * 0.12, cy + s * 0.15);
-  ctx.lineTo(cx - s * 0.4, cy + s * 0.45); // bottom-left
-  ctx.closePath();
-  ctx.fill();
-
-  // Contrasting outline for visibility on both light and dark backgrounds
-  ctx.strokeStyle = theme === "dark" ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.6)";
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  return ctx.getImageData(0, 0, s, s);
-}
-
-function iconImageExpr(): maplibregl.DataDrivenPropertyValueSpecification<string> {
-  const cases: (string | maplibregl.Expression)[] = [];
-  for (const m of VESSEL_META) {
-    cases.push(m.key);
-    cases.push(`ship-${m.key}`);
-  }
-  cases.push("ship-cargo");
-  return ["match", ["get", "shipType"], ...cases] as any;
-}
-
-function categoryFilter(active: Set<ShipType>): maplibregl.FilterSpecification {
-  if (active.size === 5) return ["has", "shipType"];
-  return ["in", ["get", "shipType"], ["literal", Array.from(active)]] as any;
-}
-
-/* ── Theme helpers ─────────────────────── */
-
-function getInitialTheme(): "light" | "dark" {
-  try {
-    const stored = localStorage.getItem("ais-theme");
-    if (stored === "dark" || stored === "light") return stored;
-  } catch {
-    /* localStorage unavailable — use default */
-  }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-}
+import { usePorts } from "./hooks/usePorts";
+import { VESSEL_META, ICON_SIZE } from "./constants/vesselMeta";
+import { BASEMAP_LIGHT, BASEMAP_DARK } from "./constants/basemaps";
+import { drawShipIcon, makeArrowIcon } from "./utils/shipIcons";
+import { categoryFilter, iconImageExpr } from "./utils/mapUtils";
+import { getInitialTheme } from "./utils/themeUtils";
+import { formatTrajTime, escapeHtml } from "./utils/formatUtils";
+import { bearing } from "./utils/geoUtils";
 
 /* ── App ──────────────────────────────── */
 
@@ -254,7 +59,7 @@ export default function App() {
   const [selectedMmsis, setSelectedMmsis] = useState<Set<number>>(new Set());
   const selectedMmsi = selectedMmsis.size === 1 ? [...selectedMmsis][0] : null;
 
-  const timeline = useTimeline(date, bounds, selectedMmsis);
+  const timeline = useTimeline(date, bounds, selectedMmsis, setDate);
   const displayVessels = timeline.isActive ? timeline.timelineVessels : vessels;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [activeCategories, setActiveCategories] = useState<Set<ShipType>>(
@@ -1245,100 +1050,35 @@ export default function App() {
       />
 
       {/* Top bar */}
-      <div className="top-bar">
-
+      <TopBar>
         {!ready && (
-          <div className="panel panel-md badge badge-info">
-            <span className="spinner-sm" />
+          <StatusBadge type="info">
+            <Spinner />
             Initializing DuckDB...
-          </div>
+          </StatusBadge>
         )}
 
         {loading && (
-          <div className="panel panel-md badge badge-loading">
-            <span className="spinner-sm" />
+          <StatusBadge type="loading">
+            <Spinner />
             Loading...
-          </div>
+          </StatusBadge>
         )}
 
         {error && (
-          <div className="panel panel-md badge badge-error">{error}</div>
+          <StatusBadge type="error">{error}</StatusBadge>
         )}
-      </div>
+      </TopBar>
 
       {/* Bottom area — timeline + floating elements */}
-      <div className="bottom-bar">
-        <Timeline
-          currentTime={timeline.currentTime}
-          playing={timeline.playing}
-          speed={timeline.speed}
-          speedOptions={timeline.speedOptions}
-          isActive={timeline.isActive}
-          loading={timeline.timelineLoading}
-          date={timeline.isActive ? timeline.currentTime : date}
-          onDateChange={setDate}
-          onTogglePlay={timeline.togglePlaying}
-          onSpeedChange={timeline.setSpeed}
-          onScrub={timeline.setCurrentTime}
-          getDayRange={timeline.getDayRange}
-        />
-
-        {/* Acquisition time badge */}
-        {sensor && sat.acquisitionTime && (
-          <div className="acq-badge">
-            {sensor === "S1" ? "Sentinel-1" : "Sentinel-2"} ·{" "}
-            {sat.acquisitionTime}
-          </div>
-        )}
-
-        {/* Legend */}
-        <div className={`panel panel-lg legend${legendVisible ? " mobile-visible" : ""}`}>
-          <div className="legend-title">Vessel Types</div>
-          {VESSEL_META.map((m) => (
-            <div key={m.key} className="legend-item">
-              <span
-                className="legend-swatch"
-                style={{ "--swatch-color": m.color } as React.CSSProperties}
-              />
-              {m.label}
-            </div>
-          ))}
-          <div className="legend-count">
-            {displayVessels.length.toLocaleString()} vessels
-          </div>
-        </div>
-
-        {/* Legend toggle (mobile only) */}
-        <button
-          className={`panel panel-sm legend-toggle${legendVisible ? " active" : ""}`}
-          onClick={() => setLegendVisible((v) => !v)}
-          title="Toggle legend"
-          aria-label="Toggle legend"
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-            <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-            <line x1="4" y1="5" x2="12" y2="5" stroke="currentColor" strokeWidth="1.5" />
-            <line x1="4" y1="8" x2="10" y2="8" stroke="currentColor" strokeWidth="1.5" />
-            <line x1="4" y1="11" x2="12" y2="11" stroke="currentColor" strokeWidth="1.5" />
-          </svg>
-        </button>
-      </div>
+      <BottomBar
+        timeline={timeline}
+        vesselCount={displayVessels.length}
+        legendVisible={legendVisible}
+        onToggleLegend={() => setLegendVisible((v) => !v)}
+        sensor={sensor}
+        acquisitionTime={sat.acquisitionTime}
+      />
     </div>
   );
-}
-
-function formatTrajTime(iso: string): string {
-  const d = new Date(iso);
-  const date = d.toISOString().slice(0, 10);
-  const time = d.toISOString().slice(11, 19);
-  return `${date} ${time} UTC`;
-}
-
-function escapeHtml(s: string | undefined | null): string {
-  if (!s) return "";
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

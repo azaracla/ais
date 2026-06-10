@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { queryPositionsAtTime, queryVesselWake, cancelQuery, isReady } from "./duckdb";
-import type { Vessel, Bounds, WakePoint } from "./types";
+import { queryPositionsAtTime, queryVesselWake, cancelQuery, isReady } from "../duckdb";
+import type { Vessel, Bounds, WakePoint } from "../types";
 
-interface UseTimelineReturn {
+export interface UseTimelineReturn {
   currentTime: string;
   playing: boolean;
   speed: number;
@@ -16,6 +16,8 @@ interface UseTimelineReturn {
   setCurrentTime: (t: string) => void;
   togglePlaying: () => void;
   getDayRange: () => { start: string; end: string };
+  date: string;
+  onDateChange: (d: string) => void;
 }
 
 function getInitialTimestamp(date: string): string {
@@ -27,7 +29,7 @@ function getInitialTimestamp(date: string): string {
   return date;
 }
 
-export function useTimeline(date: string, bounds: Bounds | null, selectedMmsis: Set<number>): UseTimelineReturn {
+export function useTimeline(date: string, bounds: Bounds | null, selectedMmsis: Set<number>, setDate?: (d: string) => void): UseTimelineReturn {
   const speedOptions = [1, 2, 5, 10, 30, 60];
 
   const [rawCurrentTime, setRawCurrentTime] = useState(() => getInitialTimestamp(date));
@@ -182,10 +184,12 @@ export function useTimeline(date: string, bounds: Bounds | null, selectedMmsis: 
     timelineVessels,
     timelineLoading,
     wakeData,
+    date,
     setPlaying,
     setSpeed: setSpeedState,
     setCurrentTime: setTime,
     togglePlaying,
     getDayRange,
+    onDateChange: setDate ?? setTime,
   };
 }

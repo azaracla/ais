@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { initDuckDB, queryPortCongestion } from "./duckdb";
-import type { PortCongestion } from "./types";
+import { initDuckDB, queryPortCongestion } from "../duckdb";
+import type { PortCongestion } from "../types";
 
 export function usePorts(date: string): {
   ports: PortCongestion[];
@@ -17,7 +17,7 @@ export function usePorts(date: string): {
   useEffect(() => {
     initDuckDB()
       .then(() => setReady(true))
-      .catch((e) => setError(e.message ?? "Failed to init DuckDB"));
+      .catch((err: Error) => setError(err.message ?? "Failed to init DuckDB"));
   }, []);
 
   useEffect(() => {
@@ -28,14 +28,14 @@ export function usePorts(date: string): {
     setError(null);
 
     queryPortCongestion(date)
-      .then((data) => {
+      .then((data: PortCongestion[]) => {
         if (gen !== genRef.current) return;
         console.log(`[Ports] Loaded ${data.length} ports for ${date}`);
         setPorts(data);
       })
-      .catch((e) => {
+      .catch((err: Error) => {
         if (gen !== genRef.current) return;
-        setError(e.message ?? "Port congestion query failed");
+        setError(err.message ?? "Port congestion query failed");
       })
       .finally(() => {
         if (gen === genRef.current) setLoading(false);
