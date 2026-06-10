@@ -4,6 +4,47 @@ import DuckDBWorkerEH from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js
 import type { Vessel, VesselSummary, Bounds, WakePoint, PortCongestion, PortCall } from "./types";
 import { shipTypeAISToCategory } from "./types";
 
+// SQL parameter sanitization helpers
+function sanitizeNumber(n: unknown): number {
+  const num = Number(n);
+  if (!Number.isFinite(num)) throw new Error(`Invalid number: ${n}`);
+  return num;
+}
+
+function sanitizeString(s: unknown): string {
+  const str = String(s);
+  // Escape single quotes for SQL
+  return str.replace(/'/g, "''");
+}
+
+function sanitizeDate(dateStr: unknown): string {
+  const str = String(dateStr);
+  // Validate ISO date format YYYY-MM-DD
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    throw new Error(`Invalid date format: ${str}`);
+  }
+  return str;
+}
+
+function sanitizeTimestamp(ts: unknown): string {
+  const str = String(ts);
+  // Validate ISO timestamp format
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/.test(str)) {
+    throw new Error(`Invalid timestamp format: ${str}`);
+  }
+  return str;
+}
+
+function sanitizeBounds(b: Bounds | null): Bounds | null {
+  if (!b) return null;
+  return {
+    west: sanitizeNumber(b.west),
+    east: sanitizeNumber(b.east),
+    south: sanitizeNumber(b.south),
+    north: sanitizeNumber(b.north),
+  };
+}
+
 let db: duckdb.AsyncDuckDB | null = null;
 let conn: duckdb.AsyncDuckDBConnection | null = null;
 let portConn: duckdb.AsyncDuckDBConnection | null = null;
@@ -66,19 +107,22 @@ export async function queryLastPositions(
   const qid = ++querySeq;
 
   const d = new Date(date);
-  const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = d.getUTCDate();
-  const ts = d.toISOString();
+  const year = sanitizeNumber(d.getUTCFullYear());
+  const month = sanitizeString(String(d.getUTCMonth() + 1).padStart(2, "0"));
+  const day = sanitizeNumber(d.getUTCDate());
+  const ts = sanitizeTimestamp(d.toISOString());
+  const validatedLimit = sanitizeNumber(limit);
+
+  const validatedBounds = sanitizeBounds(bounds);
 
   let spatialFilter = "";
   let boundsDesc = "none";
-  if (bounds) {
+  if (validatedBounds) {
     spatialFilter = `
-      AND p.lat BETWEEN ${bounds.south} AND ${bounds.north}
-      AND p.lon BETWEEN ${bounds.west} AND ${bounds.east}
+      AND p.lat BETWEEN ${validatedBounds.south} AND ${validatedBounds.north}
+      AND p.lon BETWEEN ${validatedBounds.west} AND ${validatedBounds.east}
     `;
-    boundsDesc = `${bounds.west.toFixed(1)},${bounds.south.toFixed(1)},${bounds.east.toFixed(1)},${bounds.north.toFixed(1)}`;
+    boundsDesc = `${validatedBounds.west.toFixed(1)},${validatedBounds.south.toFixed(1)},${validatedBounds.east.toFixed(1)},${validatedBounds.north.toFixed(1)}`;
   }
 
   const sql = `
@@ -96,7 +140,7 @@ export async function queryLastPositions(
       AND p.lon IS NOT NULL
       ${spatialFilter}
     ORDER BY p.mmsi, p.ts DESC
-    LIMIT ${limit}
+    LIMIT ${validatedLimit}
   `;
 
   const t0 = performance.now();
@@ -136,20 +180,23 @@ export async function queryVesselHistory(
 ): Promise<{ lat: number; lng: number; ts: Date; heading: number | null }[]> {
   if (!conn) throw new Error("DuckDB not initialized");
 
+  const validatedMmsi = sanitizeNumber(mmsi);
+  const validatedDaysBack = sanitizeNumber(daysBack);
+
   const end = new Date(vesselTs);
   const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - daysBack);
+  start.setUTCDate(start.getUTCDate() - validatedDaysBack);
   if (start > end) return [];
 
-  const startEpoch = Math.floor(start.getTime() / 1000);
-  const endEpoch = Math.floor(end.getTime() / 1000);
-  const startDate = start.toISOString().slice(0, 10);
-  const endDate = end.toISOString().slice(0, 10);
+  const startEpoch = sanitizeNumber(Math.floor(start.getTime() / 1000));
+  const endEpoch = sanitizeNumber(Math.floor(end.getTime() / 1000));
+  const startDate = sanitizeDate(start.toISOString().slice(0, 10));
+  const endDate = sanitizeDate(end.toISOString().slice(0, 10));
 
   const sql = `
     SELECT lat, lon, ts, heading
     FROM ais.vessel_tracks
-    WHERE mmsi = ${mmsi}
+    WHERE mmsi = ${validatedMmsi}
       AND date >= '${startDate}'
       AND date <= '${endDate}'
       AND ts >= ${startEpoch}
@@ -181,16 +228,19 @@ export async function queryPositionsAtTime(
   if (!conn) throw new Error("DuckDB not initialized");
 
   const d = new Date(date);
-  const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = d.getUTCDate();
-  const ts = new Date(timestamp).toISOString();
+  const year = sanitizeNumber(d.getUTCFullYear());
+  const month = sanitizeString(String(d.getUTCMonth() + 1).padStart(2, "0"));
+  const day = sanitizeNumber(d.getUTCDate());
+  const ts = sanitizeTimestamp(new Date(timestamp).toISOString());
+  const validatedLimit = sanitizeNumber(limit);
+
+  const validatedBounds = sanitizeBounds(bounds);
 
   let spatialFilter = "";
-  if (bounds) {
+  if (validatedBounds) {
     spatialFilter = `
-      AND p.lat BETWEEN ${bounds.south} AND ${bounds.north}
-      AND p.lon BETWEEN ${bounds.west} AND ${bounds.east}
+      AND p.lat BETWEEN ${validatedBounds.south} AND ${validatedBounds.north}
+      AND p.lon BETWEEN ${validatedBounds.west} AND ${validatedBounds.east}
     `;
   }
 
@@ -209,7 +259,7 @@ export async function queryPositionsAtTime(
       AND p.lon IS NOT NULL
       ${spatialFilter}
     ORDER BY p.mmsi, ABS(EPOCH(CAST(p.ts AS TIMESTAMP) - TIMESTAMP '${ts}')) ASC
-    LIMIT ${limit}
+    LIMIT ${validatedLimit}
   `;
 
   const asyncResult = await conn.send(sql);
@@ -227,10 +277,11 @@ export async function queryVesselWake(
 ): Promise<Map<number, WakePoint[]>> {
   if (!conn || mmsis.length === 0) return new Map();
 
-  const startTs = new Date(startTime).toISOString();
-  const endTs = new Date(endTime).toISOString();
+  const validatedMmsis = mmsis.map(sanitizeNumber);
+  const startTs = sanitizeTimestamp(new Date(startTime).toISOString());
+  const endTs = sanitizeTimestamp(new Date(endTime).toISOString());
 
-  const mmsiList = mmsis.join(",");
+  const mmsiList = validatedMmsis.join(",");
 
   const sql = `
     SELECT mmsi, lat, lon, ts
@@ -264,14 +315,15 @@ export async function searchVessels(query: string, limit = 15): Promise<VesselSu
   if (!conn) throw new Error("DuckDB not initialized");
   if (!query.trim()) return [];
 
-  const sanitized = query.replace(/'/g, "''");
+  const validatedQuery = sanitizeString(query);
+  const validatedLimit = sanitizeNumber(limit);
   const sql = `
     SELECT mmsi, name, ship_type
     FROM ais.vessels
-    WHERE name ILIKE '%${sanitized}%'
-       OR CAST(mmsi AS VARCHAR) LIKE '%${sanitized}%'
+    WHERE name ILIKE '%${validatedQuery}%'
+       OR CAST(mmsi AS VARCHAR) LIKE '%${validatedQuery}%'
     ORDER BY name
-    LIMIT ${limit}
+    LIMIT ${validatedLimit}
   `;
 
   const result = await conn.send(sql);
@@ -289,7 +341,7 @@ export async function searchVessels(query: string, limit = 15): Promise<VesselSu
 export async function queryPortCongestion(date: string): Promise<PortCongestion[]> {
   if (!portConn) throw new Error("DuckDB not initialized");
 
-  const dateOnly = date.slice(0, 10);
+  const validatedDate = sanitizeDate(date.slice(0, 10));
   const base = "https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/gold";
   const sql = `
     SELECT DISTINCT ON (pcg.port_lo_code)
@@ -307,7 +359,7 @@ export async function queryPortCongestion(date: string): Promise<PortCongestion[
       FROM read_parquet('${base}/port_calls/port_calls.parquet')
       WHERE port_lat IS NOT NULL AND port_lon IS NOT NULL
     ) pc ON pc.port_lo_code = pcg.port_lo_code
-    WHERE pcg.date = '${dateOnly}'
+    WHERE pcg.date = '${validatedDate}'
     ORDER BY pcg.port_lo_code, pcg.hour DESC
   `;
 
@@ -327,9 +379,13 @@ export async function queryPortCalls(
   if (!portConn) throw new Error("DuckDB not initialized");
 
   const base = "https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/gold";
-  let filter = `port_lo_code = '${portLoCode.replace(/'/g, "''")}'`;
+  const validatedPortLoCode = sanitizeString(portLoCode);
+  const validatedLimit = sanitizeNumber(limit);
+  
+  let filter = `port_lo_code = '${validatedPortLoCode}'`;
   if (date) {
-    filter += ` AND arrival_date = '${date}'`;
+    const validatedDate = sanitizeDate(date);
+    filter += ` AND arrival_date = '${validatedDate}'`;
   }
 
   const sql = `
@@ -344,7 +400,7 @@ export async function queryPortCalls(
     FROM read_parquet('${base}/port_calls/port_calls.parquet')
     WHERE ${filter}
     ORDER BY arrival_ts DESC
-    LIMIT ${limit}
+    LIMIT ${validatedLimit}
   `;
 
   const asyncResult = await portConn.send(sql);

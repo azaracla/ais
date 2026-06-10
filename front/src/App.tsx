@@ -7,7 +7,6 @@ import { useTimeline } from "./useTimeline";
 import { queryVesselHistory, queryPortCalls } from "./duckdb";
 import { useSatellite } from "./useSatellite";
 import { useDraw } from "./useDraw";
-// import SatelliteControls from "./SatelliteControls"; // réactivé quand satellite revient
 import Timeline from "./Timeline";
 import Sidebar from "./Sidebar";
 import { vesselsToGeoJSON, portsToGeoJSON } from "./mockData";
@@ -234,6 +233,8 @@ export default function App() {
   const sceneAcqTsRef = useRef<number | null>(null);
   const trajectoryGenRef = useRef(0);
   const [mapVisible, setMapVisible] = useState(false);
+  const portHoverPopupRef = useRef<maplibregl.Popup | null>(null);
+  const portDetailPopupRef = useRef<maplibregl.Popup | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(getInitialTheme);
   const themeRef = useRef(theme);
@@ -261,8 +262,7 @@ export default function App() {
   const [speedRange, setSpeedRange] = useState<[number, number]>([0, 50]);
   const [showLabels, setShowLabels] = useState(false);
   const [legendVisible, setLegendVisible] = useState(true);
-  const [_satelliteExpanded, _setSatelliteExpanded] = useState(false);
-  void _satelliteExpanded; void _setSatelliteExpanded; // réactivé quand SatelliteControls revient
+  const [showPortCongestion, setShowPortCongestion] = useState(false);
 
   const handleSelectVessel = useCallback((mmsi: number, shift: boolean) => {
     if (shift) {
@@ -315,13 +315,11 @@ export default function App() {
     });
   }, []);
 
-  const [sensor, setSensor] = useState<Sensor | null>(null);
-  const [scenesOnly, setScenesOnly] = useState(true);
-  const [satManualDate, setSatManualDate] = useState<string | null>(null);
-  const satDate = satManualDate ?? date.slice(0, 10);
-  const { mode, drawBounds, startDraw, clear: _clear } = useDraw(mapRef.current);
-  const hasDrawArea = drawBounds !== null;
-  void _clear; void hasDrawArea; void setSensor; void setScenesOnly; void setSatManualDate; void mode; void startDraw; // réactivé quand SatelliteControls revient
+  const [sensor, _setSensor] = useState<Sensor | null>(null);
+  const [_scenesOnly, _setScenesOnly] = useState(true);
+  const [_satManualDate, _setSatManualDate] = useState<string | null>(null);
+  const satDate = _satManualDate ?? date.slice(0, 10);
+  const { mode: _mode, drawBounds, startDraw: _startDraw, clear: _clear } = useDraw(mapRef.current);
   const satBounds = drawBounds ?? bounds;
   const sat = useSatellite(sensor, satBounds, satDate);
 
@@ -559,121 +557,7 @@ export default function App() {
         "vessel-point",
       );
 
-      // Port congestion source + layer
-      m.addSource("ports", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      m.addLayer(
-        {
-          id: "ports-congestion",
-          type: "circle",
-          source: "ports",
-          minzoom: 4,
-          paint: {
-            "circle-radius": [
-              "interpolate", ["linear"], ["get", "vessels_in_port"],
-              0, 3,
-              10, 6,
-              50, 10,
-              200, 16,
-              500, 24,
-            ],
-            "circle-color": [
-              "interpolate", ["linear"], ["get", "congestion"],
-              0, "#22c55e",
-              0.3, "#eab308",
-              0.6, "#f97316",
-              1, "#ef4444",
-            ],
-            "circle-opacity": 0.7,
-            "circle-stroke-color": "#fff",
-            "circle-stroke-width": 1,
-            "circle-stroke-opacity": 0.6,
-          },
-        },
-        "vessel-point",
-      );
 
-      // Port congestion hover
-      const portHoverPopup = new maplibregl.Popup({
-        closeButton: false,
-        closeOnClick: false,
-        offset: 8,
-        className: "hover-tooltip",
-      });
-      m.on("mousemove", "ports-congestion", (e) => {
-        const f = e.features?.[0];
-        if (!f?.properties) return;
-        m.getCanvas().style.cursor = "pointer";
-        const p = f.properties;
-        portHoverPopup
-          .setLngLat(e.lngLat)
-          .setHTML(
-            `<span class="hover-tooltip-text">${escapeHtml(p.port_name)} &middot; ${p.vessels_in_port} in port &middot; +${p.arrivals} / -${p.departures}</span>`,
-          )
-          .addTo(m);
-      });
-      m.on("mouseleave", "ports-congestion", () => {
-        portHoverPopup.remove();
-        m.getCanvas().style.cursor = "";
-      });
-
-      // Port click: show port_calls popup
-      const portDetailPopup = new maplibregl.Popup({
-        closeButton: true,
-        closeOnClick: false,
-        maxWidth: "320px",
-        className: "port-detail-popup",
-      });
-      m.on("click", "ports-congestion", async (e) => {
-        const f = e.features?.[0];
-        if (!f?.properties) return;
-        const p = f.properties;
-        const loCode = p.port_lo_code;
-        const name = p.port_name;
-
-        portDetailPopup
-          .setLngLat(e.lngLat)
-          .setHTML(
-            `<div class="port-popup-loading">Loading ${escapeHtml(name)}...</div>`,
-          )
-          .addTo(m);
-
-        try {
-          const calls = await queryPortCalls(loCode, dateRef.current, 10);
-          if (calls.length === 0) {
-            portDetailPopup.setHTML(
-              `<div class="port-popup">
-                <strong>${escapeHtml(name)}</strong>
-                <div class="port-popup-row">No recorded calls today</div>
-              </div>`,
-            );
-            return;
-          }
-          const rows = calls
-            .map(
-              (c) =>
-                `<div class="port-popup-row">
-                  <span>MMSI ${c.mmsi}</span>
-                  <span>${c.arrival_ts?.slice(11, 19) ?? "?"}</span>
-                  ${c.departure_ts ? `<span>&rarr; ${c.departure_ts.slice(11, 19)}</span>` : '<span class="port-popup-active">in port</span>'}
-                </div>`,
-            )
-            .join("");
-          portDetailPopup.setHTML(
-            `<div class="port-popup">
-              <strong>${escapeHtml(name)}</strong>
-              <div class="port-popup-sub">${calls.length} calls (${p.vessels_in_port} in port, +${p.arrivals}/-${p.departures} last hour)</div>
-              ${rows}
-            </div>`,
-          );
-        } catch {
-          portDetailPopup.setHTML(
-            `<div class="port-popup"><strong>${escapeHtml(name)}</strong><div class="port-popup-row">Failed to load calls</div></div>`,
-          );
-        }
-      });
 
       // Trajectory arrow hover: show time
       const trajPopup = new maplibregl.Popup({
@@ -689,7 +573,7 @@ export default function App() {
         trajPopup
           .setLngLat(e.lngLat)
           .setHTML(
-            `<span class="traj-tooltip-text">${formatTrajTime(f.properties.ts)}</span>`,
+            `<span class="traj-tooltip-text">${escapeHtml(formatTrajTime(f.properties.ts))}</span>`,
           )
           .addTo(m);
       });
@@ -843,7 +727,8 @@ export default function App() {
                 features: [line, ...points],
               });
             })
-            .catch(() => {
+            .catch((err) => {
+              console.error("[trajectory] queryVesselHistory failed:", err);
               if (gen !== trajectoryGenRef.current) return;
               setTrajectoryStatus("error");
             });
@@ -855,9 +740,12 @@ export default function App() {
 
       // Click off vessel/port → clear selection
       m.on("click", (e) => {
+        const layers = showPortCongestion
+          ? ["vessel-point", "vessel-dots", "ports-congestion"]
+          : ["vessel-point", "vessel-dots"];
         if (
           m.queryRenderedFeatures(e.point, {
-            layers: ["vessel-point", "vessel-dots", "ports-congestion"],
+            layers,
           }).length > 0
         )
           return;
@@ -939,8 +827,164 @@ export default function App() {
     }
   }, [displayVessels, sourceReady]);
 
+  // Toggle port congestion layer
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !sourceReady) return;
+
+    if (showPortCongestion) {
+      // Add source and layer if they don't exist
+      if (!map.getSource("ports")) {
+        map.addSource("ports", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+      }
+      if (!map.getLayer("ports-congestion")) {
+        map.addLayer(
+          {
+            id: "ports-congestion",
+            type: "circle",
+            source: "ports",
+            minzoom: 4,
+            paint: {
+              "circle-radius": [
+                "interpolate", ["linear"], ["get", "vessels_in_port"],
+                0, 3,
+                10, 6,
+                50, 10,
+                200, 16,
+                500, 24,
+              ],
+              "circle-color": [
+                "interpolate", ["linear"], ["get", "congestion"],
+                0, "#22c55e",
+                0.3, "#eab308",
+                0.6, "#f97316",
+                1, "#ef4444",
+              ],
+              "circle-opacity": 0.7,
+              "circle-stroke-color": "#fff",
+              "circle-stroke-width": 1,
+              "circle-stroke-opacity": 0.6,
+            },
+          },
+          "vessel-point",
+        );
+      }
+
+      // Add hover popup if it doesn't exist
+      if (!portHoverPopupRef.current) {
+        portHoverPopupRef.current = new maplibregl.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          offset: 8,
+          className: "hover-tooltip",
+        });
+      }
+      // Add click popup if it doesn't exist
+      if (!portDetailPopupRef.current) {
+        portDetailPopupRef.current = new maplibregl.Popup({
+          closeButton: true,
+          closeOnClick: false,
+          maxWidth: "320px",
+          className: "port-detail-popup",
+        });
+      }
+
+      // Add hover events
+      map.on("mousemove", "ports-congestion", (e) => {
+        const f = e.features?.[0];
+        if (!f?.properties) return;
+        map.getCanvas().style.cursor = "pointer";
+        const p = f.properties;
+        const popup = portHoverPopupRef.current;
+        if (popup) {
+          popup
+            .setLngLat(e.lngLat)
+            .setHTML(
+              `<span class="hover-tooltip-text">${escapeHtml(p.port_name)} &middot; ${p.vessels_in_port} in port &middot; +${p.arrivals} / -${p.departures}</span>`,
+            )
+            .addTo(map);
+        }
+      });
+      map.on("mouseleave", "ports-congestion", () => {
+        portHoverPopupRef.current?.remove();
+        map.getCanvas().style.cursor = "";
+      });
+
+      // Add click event
+      map.on("click", "ports-congestion", async (e) => {
+        const f = e.features?.[0];
+        if (!f?.properties) return;
+        const p = f.properties;
+        const loCode = p.port_lo_code;
+        const name = p.port_name;
+
+        const popup = portDetailPopupRef.current;
+        if (popup) {
+          popup
+            .setLngLat(e.lngLat)
+            .setHTML(
+              `<div class="port-popup-loading">Loading ${escapeHtml(name)}...</div>`,
+            )
+            .addTo(map);
+        }
+
+        try {
+          const calls = await queryPortCalls(loCode, dateRef.current, 10);
+          if (calls.length === 0) {
+            portDetailPopupRef.current?.setHTML(
+              `<div class="port-popup">
+                <strong>${escapeHtml(name)}</strong>
+                <div class="port-popup-row">No recorded calls today</div>
+              </div>`,
+            );
+            return;
+          }
+          const rows = calls
+            .map(
+              (c) =>
+                `<div class="port-popup-row">
+                  <span>MMSI ${escapeHtml(String(c.mmsi))}</span>
+                  <span>${escapeHtml(c.arrival_ts?.slice(11, 19) ?? "?")}</span>
+                  ${c.departure_ts ? `<span>&rarr; ${escapeHtml(c.departure_ts.slice(11, 19))}</span>` : '<span class="port-popup-active">in port</span>'}
+                </div>`,
+            )
+            .join("");
+          portDetailPopupRef.current?.setHTML(
+            `<div class="port-popup">
+              <strong>${escapeHtml(name)}</strong>
+              <div class="port-popup-sub">${calls.length} calls (${p.vessels_in_port} in port, +${p.arrivals}/-${p.departures} last hour)</div>
+              ${rows}
+            </div>`,
+          );
+        } catch {
+          portDetailPopupRef.current?.setHTML(
+            `<div class="port-popup"><strong>${escapeHtml(name)}</strong><div class="port-popup-row">Failed to load calls</div></div>`,
+          );
+        }
+      });
+    } else {
+      // Remove layer and source
+      if (map.getLayer("ports-congestion")) {
+        map.removeLayer("ports-congestion");
+      }
+      if (map.getSource("ports")) {
+        map.removeSource("ports");
+      }
+
+      // Remove event listeners by removing and recreating popups
+      portHoverPopupRef.current?.remove();
+      portHoverPopupRef.current = null;
+      portDetailPopupRef.current?.remove();
+      portDetailPopupRef.current = null;
+    }
+  }, [showPortCongestion, sourceReady, dateRef, queryPortCalls]);
+
   // Update port congestion data on map
   useEffect(() => {
+    if (!showPortCongestion) return;
     console.log(`[Ports layer] sourceReady=${sourceReady}, count=${ports.length}`);
     if (!sourceReady || ports.length === 0) return;
     const map = mapRef.current;
@@ -952,7 +996,7 @@ export default function App() {
     } else {
       console.warn("[Ports layer] Source 'ports' not found on map");
     }
-  }, [ports, sourceReady]);
+  }, [ports, sourceReady, showPortCongestion]);
 
   // Update wake data on map when timeline is active
   useEffect(() => {
@@ -1039,7 +1083,7 @@ export default function App() {
     if (map.getLayer("satellite-layer")) map.removeLayer("satellite-layer");
     if (map.getSource("satellite")) map.removeSource("satellite");
 
-    if (sat.tileUrl && !scenesOnly) {
+    if (sat.tileUrl && !_scenesOnly) {
       map.addSource("satellite", {
         type: "raster",
         tiles: [sat.tileUrl],
@@ -1050,7 +1094,7 @@ export default function App() {
         "vessel-radius-layer",
       );
     }
-  }, [sat.tileUrl, sourceReady, scenesOnly]);
+  }, [sat.tileUrl, sourceReady, _scenesOnly]);
 
   // Scene acquisition timestamp
   useEffect(() => {
@@ -1121,7 +1165,7 @@ export default function App() {
         popup
           .setLngLat(e.lngLat)
           .setHTML(
-            `<span style="font:11px system-ui;color:var(--color-text)">${f.properties.acquisition_time}</span>`,
+            `<span style="font:11px system-ui;color:var(--color-text)">${escapeHtml(f.properties.acquisition_time)}</span>`,
           )
           .addTo(map);
       });
@@ -1152,6 +1196,8 @@ export default function App() {
         onSpeedRangeChange={setSpeedRange}
         showLabels={showLabels}
         onToggleLabels={() => setShowLabels((v) => !v)}
+        showPortCongestion={showPortCongestion}
+        onTogglePortCongestion={() => setShowPortCongestion((v) => !v)}
       />
       <div ref={mapContainer} className="map-container" />
 

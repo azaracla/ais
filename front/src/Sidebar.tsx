@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { FixedSizeList as List } from "react-window";
 import { useVesselSearch } from "./useVesselSearch";
 import VesselDetails from "./VesselDetails";
 import type { Vessel, VesselSummary, ShipType } from "./types";
@@ -25,7 +26,7 @@ const SORT_OPTIONS = [
   { key: "type", label: "Type" },
 ] as const;
 
-const MAX_RENDER = 500;
+const ITEM_SIZE = 56; // Height of each sidebar item in pixels
 
 interface Props {
   vessels: Vessel[];
@@ -45,6 +46,8 @@ interface Props {
   onSpeedRangeChange: (range: [number, number]) => void;
   showLabels: boolean;
   onToggleLabels: () => void;
+  showPortCongestion: boolean;
+  onTogglePortCongestion: () => void;
 }
 
 export default function Sidebar({
@@ -65,6 +68,8 @@ export default function Sidebar({
   onSpeedRangeChange,
   showLabels,
   onToggleLabels,
+  showPortCongestion,
+  onTogglePortCongestion,
 }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -117,11 +122,6 @@ export default function Sidebar({
     return list;
   }, [vessels, activeCategories, searchQuery, sortKey, speedRange]);
 
-  const renderedVessels = useMemo(
-    () => filteredVessels.slice(0, MAX_RENDER),
-    [filteredVessels],
-  );
-
   const categoryCounts = useMemo(() => {
     const counts: Record<ShipType, number> = {
       cargo: 0,
@@ -169,6 +169,43 @@ export default function Sidebar({
   );
 
   const isDetailMode = selectedMmsi !== null && selectedVessel !== null;
+
+  // Row renderer for virtualized list
+  const VesselRow = useCallback(
+    ({ index, style }: { index: number; style: React.CSSProperties }) => {
+      const v = filteredVessels[index];
+      if (!v) return null;
+      const isSelected = selectedMmsis?.has(v.id) || selectedMmsi === v.id;
+      return (
+        <div
+          style={style}
+          onClick={() => onSelectVessel(v.id)}
+          className={`sidebar-item${isSelected ? " selected" : ""}`}
+        >
+          <span
+            className="sidebar-item-icon"
+            style={{ background: CAT_COLORS[v.shipType] }}
+          />
+          <span className="sidebar-item-body">
+            <span className="sidebar-item-name">{v.name}</span>
+            {v.destination && (
+              <span className="sidebar-item-dest">{v.destination}</span>
+            )}
+          </span>
+          <span className="sidebar-item-right">
+            <span className="sidebar-item-speed">
+              {v.speed.toFixed(1)}
+              <span className="sidebar-item-unit">kn</span>
+            </span>
+            <span className="sidebar-item-heading">
+              {v.heading}&deg;
+            </span>
+          </span>
+        </div>
+      );
+    },
+    [filteredVessels, selectedMmsi, selectedMmsis, onSelectVessel, CAT_COLORS]
+  );
 
   return (
     <>
@@ -313,6 +350,14 @@ export default function Sidebar({
                     />
                     Labels
                   </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={showPortCongestion}
+                      onChange={onTogglePortCongestion}
+                    />
+                    Ports
+                  </label>
                 </div>
                 <div className="sidebar-speed-sliders">
                   <input
@@ -375,52 +420,30 @@ export default function Sidebar({
               )}
 
               <div className="sidebar-list">
-                {renderedVessels.map((v) => (
-                  <button
-                    key={v.id}
-                    className={`sidebar-item${
-                      (selectedMmsis?.has(v.id) || selectedMmsi === v.id) ? " selected" : ""
-                    }`}
-                    onClick={() => onSelectVessel(v.id)}
+                {filteredVessels.length > 0 ? (
+                  <List
+                    height={Math.min(filteredVessels.length * ITEM_SIZE, 600)}
+                    itemCount={filteredVessels.length}
+                    itemSize={ITEM_SIZE}
+                    width="100%"
                   >
-                    <span
-                      className="sidebar-item-icon"
-                      style={{ background: CAT_COLORS[v.shipType] }}
-                    />
-                    <span className="sidebar-item-body">
-                      <span className="sidebar-item-name">{v.name}</span>
-                      {v.destination && (
-                        <span className="sidebar-item-dest">
-                          {v.destination}
-                        </span>
-                      )}
-                    </span>
-                    <span className="sidebar-item-right">
-                      <span className="sidebar-item-speed">
-                        {v.speed.toFixed(1)}
-                        <span className="sidebar-item-unit">kn</span>
-                      </span>
-                      <span className="sidebar-item-heading">
-                        {v.heading}&deg;
-                      </span>
-                    </span>
-                  </button>
-                ))}
-                {filteredVessels.length === 0 && !loading && !error && (
-                  <div className="sidebar-empty">
-                    {vessels.length === 0
-                      ? "No vessels in viewport"
-                      : "No vessels match filters"}
-                  </div>
+                    {VesselRow}
+                  </List>
+                ) : (
+                  !loading && !error && (
+                    <div className="sidebar-empty">
+                      {vessels.length === 0
+                        ? "No vessels in viewport"
+                        : "No vessels match filters"}
+                    </div>
+                  )
                 )}
               </div>
 
               <div className="sidebar-footer">
-                {filteredVessels.length > renderedVessels.length
-                  ? `Showing ${renderedVessels.length.toLocaleString()} of ${filteredVessels.length.toLocaleString()} (scroll to map or filter)`
-                  : filteredVessels.length < vessels.length
-                    ? `Showing ${filteredVessels.length.toLocaleString()} of ${vessels.length.toLocaleString()}`
-                    : `${vessels.length.toLocaleString()} vessels`}
+                {filteredVessels.length < vessels.length
+                  ? `Showing ${filteredVessels.length.toLocaleString()} of ${vessels.length.toLocaleString()}`
+                  : `${vessels.length.toLocaleString()} vessels`}
               </div>
             </>
           )}
