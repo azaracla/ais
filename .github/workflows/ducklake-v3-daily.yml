@@ -24,6 +24,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Pull ports.parquet (LFS)
+        run: git lfs pull --include="ml/data/ports.parquet"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
