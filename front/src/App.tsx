@@ -62,6 +62,14 @@ export default function App() {
   const timeline = useTimeline(date, bounds, selectedMmsis, setDate);
   const displayVessels = timeline.isActive ? timeline.timelineVessels : vessels;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem("ais-sidebar-width");
+      return saved ? Math.max(200, Math.min(600, Number(saved))) : 380;
+    } catch {
+      return 380;
+    }
+  });
   const [activeCategories, setActiveCategories] = useState<Set<ShipType>>(
     new Set(["cargo", "tanker", "passenger", "fishing", "pleasure"]),
   );
@@ -149,6 +157,11 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
     try { localStorage.setItem("ais-theme", theme); } catch {}
   }, [theme]);
+
+  // Persist sidebar width
+  useEffect(() => {
+    try { localStorage.setItem("ais-sidebar-width", String(sidebarWidth)); } catch {}
+  }, [sidebarWidth]);
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "light" ? "dark" : "light"));
@@ -438,6 +451,7 @@ export default function App() {
         const mmsi = p.id as number | undefined;
         if (!mmsi) return;
 
+        const coords = (f.geometry as any).coordinates as [number, number];
         const shift = e.originalEvent?.shiftKey ?? shiftRef.current;
 
         if (shift) {
@@ -453,22 +467,29 @@ export default function App() {
 
         // Fly to vessel
         m.flyTo({
-          center: (f.geometry as any).coordinates as [number, number],
+          center: [coords[0], coords[1]],
           zoom: Math.max(m.getZoom(), 8),
           duration: 600,
         });
 
         // Show vessel detail popup
-        const popupCoords = (f.geometry as any).coordinates as [number, number];
-        const popupShipType = p.shipType as string | undefined;
+        // Construct vessel from feature properties (more reliable than searching displayVessels)
+        const popupShipType = (p.shipType as string | undefined) ?? "pleasure";
         const popupMeta = VESSEL_META.find((mt) => mt.key === popupShipType);
         const popupColor = popupMeta?.color ?? "#888";
 
-        const popupVessel = displayVessels.find((v) => v.id === mmsi);
-        if (!popupVessel) {
-          console.warn(`[VesselPopup] Vessel with MMSI ${mmsi} not found in displayVessels (count: ${displayVessels.length})`);
-          return;
-        }
+        // Build vessel object from feature properties
+        const popupVessel: Vessel = {
+          id: mmsi,
+          name: p.name as string,
+          lat: coords[1],
+          lng: coords[0],
+          heading: p.heading as number,
+          speed: p.speed as number,
+          shipType: popupShipType,
+          destination: p.destination as string | undefined,
+          ts: p.ts as string | undefined,
+        };
 
         // Close existing popup
         vesselDetailPopupRef.current?.remove();
@@ -489,7 +510,7 @@ export default function App() {
         popupRoot.render(<VesselPopup vessel={popupVessel} color={popupColor} />);
 
         popup
-          .setLngLat([popupCoords[0], popupCoords[1]])
+          .setLngLat([coords[0], coords[1]])
           .setDOMContent(popupContainer)
           .addTo(m);
 
@@ -1042,6 +1063,8 @@ export default function App() {
         onToggleLabels={() => setShowLabels((v) => !v)}
         showPortCongestion={showPortCongestion}
         onTogglePortCongestion={() => setShowPortCongestion((v) => !v)}
+        width={sidebarWidth}
+        onWidthChange={setSidebarWidth}
       />
       <div ref={mapContainer} className="map-container" />
 

@@ -26,6 +26,8 @@ interface Props {
   onToggleLabels: () => void;
   showPortCongestion: boolean;
   onTogglePortCongestion: () => void;
+  width?: number;
+  onWidthChange?: (width: number) => void;
 }
 
 export default function Sidebar({
@@ -48,6 +50,8 @@ export default function Sidebar({
   onToggleLabels,
   showPortCongestion,
   onTogglePortCongestion,
+  width = 380,
+  onWidthChange,
 }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -55,6 +59,10 @@ export default function Sidebar({
   const [suggestions, setSuggestions] = useState<VesselSummary[]>([]);
   const { search, loading: searchLoading } = useVesselSearch();
   const suggestGenRef = useRef(0);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const isResizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
 
   useEffect(() => {
     if (searchQuery.trim().length < 2) {
@@ -148,6 +156,39 @@ export default function Sidebar({
 
   const isDetailMode = selectedMmsi !== null && selectedVessel !== null;
 
+  // Handle resize - declare functions first to avoid hoisting issues
+  const handleResize = useCallback((e: MouseEvent) => {
+    if (!isResizingRef.current) return;
+    const delta = e.clientX - startXRef.current;
+    const newWidth = Math.max(200, Math.min(600, startWidthRef.current + delta));
+    if (onWidthChange) {
+      onWidthChange(newWidth);
+    }
+  }, [onWidthChange]);
+
+  const handleResizeEnd = useCallback(() => {
+    isResizingRef.current = false;
+    document.removeEventListener("mousemove", handleResize);
+    document.removeEventListener("mouseup", handleResizeEnd);
+  }, [handleResize]);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    isResizingRef.current = true;
+    startXRef.current = e.clientX;
+    startWidthRef.current = width;
+    document.addEventListener("mousemove", handleResize);
+    document.addEventListener("mouseup", handleResizeEnd);
+    e.preventDefault();
+  }, [width, handleResize, handleResizeEnd]);
+
+  // Cleanup resize listeners on unmount
+  useEffect(() => {
+    return () => {
+      document.removeEventListener("mousemove", handleResize);
+      document.removeEventListener("mouseup", handleResizeEnd);
+    };
+  }, [handleResize, handleResizeEnd]);
+
   // Row renderer for virtualized list
   const VesselRowComponent = useCallback(
     ({ index, style }: { index: number; style: React.CSSProperties }) => {
@@ -176,8 +217,12 @@ export default function Sidebar({
         </button>
       )}
 
-      <div className={`sidebar${collapsed ? " collapsed" : ""}`}>
-        <div className="sidebar-inner">
+      <div className={`sidebar${collapsed ? " collapsed" : ""}`} style={{ width: `${width}px` } as React.CSSProperties}>
+        <div className="sidebar-inner" ref={sidebarRef}>
+          <div
+            className="sidebar-resize-handle"
+            onMouseDown={handleResizeStart}
+          />
           {isDetailMode ? (
             <>
               <div className="sidebar-back-row">

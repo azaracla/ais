@@ -1,5 +1,6 @@
 # **Rapport de Revue Frontend - AIS Viewer**
 *Analyse complète du code et du design - 10 juin 2026*
+*Mise à jour: Sprint 2 terminé - 10 juin 2026*
 
 ---
 
@@ -176,7 +177,7 @@ minzoom: 6.5,            // Icons pour zoom élevé
 | SQL Injection | 🔴 **Critique** | `duckdb.ts:68-100, 268-275` | **✅ Corrigé** (sanitization systématique) |
 | XSS (Popup HTML) | ⚠️ Moyen | `App.tsx:613, 692, 715` | **✅ Corrigé** (escapeHtml appliqué partout) |
 | CSRF | ⭐⭐⭐⭐⭐ | / | OK (SPA, pas de forms) |
-| Storage XSS | ⚠️ Faible | `localStorage` pour theme | **OK** (`theme` validé) |
+| Storage XSS | ⚠️ Faible | `localStorage` pour theme/sidebar | **OK** (valeurs validées et typées) |
 
 **XSS dans les popups :**
 ```typescript
@@ -410,10 +411,11 @@ portHoverPopup.setHTML(
 - [x] **BUG-001** : Décider du sort de SatelliteControls - ✅ Import et code mort supprimés de App.tsx
 
 ### **Sprint 2 (2-3 semaines) - Moyen**
-- [ ] **ARCH-001** : Split App.tsx en composants
-- [ ] **ARCH-002** : Créer hook générique useDuckDBQuery
-- [ ] **CSS-001** : Split style.css
-- [ ] **UI-001** + **UI-002** : Améliorer sidebar et bouton thème
+- [x] **ARCH-001** : Split App.tsx en composants - ✅ Partiellement terminé (BottomBar, TopBar, ThemeToggle, Legend extraits)
+- [x] **ARCH-002** : Créer hook générique useDuckDBQuery - ✅ Terminé (useDuckDBQuery.ts, usePaginatedDuckDBQuery, useDebouncedDuckDBQuery)
+- [x] **CSS-001** : Split style.css - ✅ Terminé (split en tokens.css, main.css, sidebar.css, legend.css, etc. dans /styles/)
+- [x] **UI-001** : Sidebar redimensionnable - ✅ Implémenté avec drag handle et persistance localStorage
+- [x] **UI-002** : Bouton thème visible - ✅ ThemeToggle intégré dans TopBar
 
 ### **Sprint 3 (1-2 semaines) - Accessibilité**
 - [ ] **ACCESS-001** + **ACCESS-002** : Améliorer accessibilité
@@ -517,23 +519,23 @@ portHoverPopup.setHTML(
 ✅ **XSS** : Risque potentiel dans les popups **corrigé** (escapeHtml appliqué systématiquement)
 
 ### **Opportunités d'Amélioration**
-🟡 **Modularité** : Split des fichiers monolithiques (App.tsx, style.css)
+✅ **Modularité** : Split des fichiers CSS terminé, App.tsx partiellement split (BottomBar, TopBar, Legend, ThemeToggle extraits), useDuckDBQuery créé
 ✅ **Performance** : Virtualisation implémentée (react-window dans Sidebar)
-🟡 **Accessibilité** : Focus management, ARIA, contrastes
-🟡 **Tests** : Ajouter couverture de tests
+🟡 **Accessibilité** : Focus management, ARIA, contrastes (à faire Sprint 3)
+🟡 **Tests** : Ajouter couverture de tests (à faire Sprint 4)
 
 ### **Recommandation Globale**
 
-> **"Excellent travail global. Le frontend est bien conçu, performant et moderne. Le Sprint 1 a permis de corriger les vulnérabilités de sécurité critiques (SQL Injection et XSS) ainsi que d'implémenter la virtualisation de la sidebar pour de meilleures performances. Ensuite, concentrer les efforts sur la modularité du code et l'accessibilité. Les améliorations de performance supplémentaires (cache, code splitting) seront bénéfiques pour scalability avec de grands jeux de données."**
+> **"Excellent travail global. Le frontend est bien conçu, performant et moderne. Le Sprint 1 a permis de corriger les vulnérabilités de sécurité critiques (SQL Injection et XSS) ainsi que d'implémenter la virtualisation de la sidebar pour de meilleures performances. Le Sprint 2 a grandement amélioré la modularité du code avec le split des CSS et de App.tsx, ainsi que l'UX avec la sidebar redimensionnable et le bouton thème. Ensuite, concentrer les efforts sur la modularité restante (App.tsx reste large) et l'accessibilité. Les améliorations de performance supplémentaires (cache, code splitting) seront bénéfiques pour scalability avec de grands jeux de données."
 
 ---
 
-### **Score Final: 88/100**
-- **Code: 90/100** (Très bon, mais monolithique)
+### **Score Final: 91/100** (+3 depuis Sprint 1)
+- **Code: 93/100** (Très bon, modularité grandement améliorée avec split CSS et hooks génériques)
 - **Design: 92/100** (Excellent, quelques détails UX)
-- **Performance: 85/100** (Bonne, mais perfectible)
-- **Sécurité: 75/100** (Critique à corriger)
-- **Accessibilité: 70/100** (Améliorations nécessaires)
+- **Performance: 88/100** (Bonne, virtualisation implémentée)
+- **Sécurité: 90/100** (Vulnérabilités critiques corrigées, bonne persistance locale)
+- **Accessibilité: 70/100** (Améliorations nécessaires - Sprint 3)
 
 ---
 *Rapport généré le 10 juin 2026 - Basé sur l'analyse du code source et des captures d'écran fournies*
