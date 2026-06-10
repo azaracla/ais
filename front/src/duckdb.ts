@@ -69,7 +69,7 @@ export async function queryLastPositions(
   const year = d.getUTCFullYear();
   const month = String(d.getUTCMonth() + 1).padStart(2, "0");
   const day = d.getUTCDate();
-  const ts = d.toISOString().slice(0, 19).replace("T", " ");
+  const ts = d.toISOString();
 
   let spatialFilter = "";
   let boundsDesc = "none";
@@ -184,7 +184,7 @@ export async function queryPositionsAtTime(
   const year = d.getUTCFullYear();
   const month = String(d.getUTCMonth() + 1).padStart(2, "0");
   const day = d.getUTCDate();
-  const ts = new Date(timestamp).toISOString().slice(0, 19).replace("T", " ");
+  const ts = new Date(timestamp).toISOString();
 
   let spatialFilter = "";
   if (bounds) {
@@ -227,8 +227,8 @@ export async function queryVesselWake(
 ): Promise<Map<number, WakePoint[]>> {
   if (!conn || mmsis.length === 0) return new Map();
 
-  const startTs = new Date(startTime).toISOString().slice(0, 19).replace("T", " ");
-  const endTs = new Date(endTime).toISOString().slice(0, 19).replace("T", " ");
+  const startTs = new Date(startTime).toISOString();
+  const endTs = new Date(endTime).toISOString();
 
   const mmsiList = mmsis.join(",");
 
