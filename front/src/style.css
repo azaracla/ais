@@ -1501,3 +1501,97 @@ select.input-text { cursor: pointer; max-width: 200px; }
   font-size: 12px;
   color: var(--color-text-muted);
 }
+
+/* ── Vessel Detail Popup ───────────────── */
+.vessel-detail-popup .maplibregl-popup-content {
+  background: var(--color-bg-panel) !important;
+  backdrop-filter: var(--blur-panel);
+  -webkit-backdrop-filter: var(--blur-panel);
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-lg) !important;
+  color: var(--color-text) !important;
+  padding: 0 !important;
+  min-width: 220px;
+  max-width: 280px;
+  font: var(--font-ui);
+}
+
+.vessel-detail-popup .maplibregl-popup-tip {
+  border-top-color: var(--color-bg-panel) !important;
+}
+
+.vessel-popup {
+  display: flex;
+  flex-direction: column;
+}
+
+.vessel-popup-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.vessel-popup-color-bar {
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.vessel-popup-name {
+  font-weight: 700;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vessel-popup-body {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vessel-popup-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.vessel-popup-label {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.vessel-popup-value {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.vessel-popup-value.mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.vessel-popup-value-dim {
+  color: var(--color-text-dim);
+  font-size: 11px;
+  text-align: right;
+}
+
+.vessel-popup-timeago {
+  margin-top: 2px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 4px;
+}

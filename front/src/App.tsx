@@ -1,6 +1,7 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./style.css";
 import { useRef, useEffect, useState, useCallback } from "react";
+import { createRoot } from "react-dom/client";
 import maplibregl from "maplibre-gl";
 import { useVessels } from "./useVessels";
 import { useTimeline } from "./useTimeline";
@@ -9,6 +10,7 @@ import { useSatellite } from "./useSatellite";
 import { useDraw } from "./useDraw";
 import Timeline from "./Timeline";
 import Sidebar from "./Sidebar";
+import VesselPopup from "./VesselPopup";
 import { vesselsToGeoJSON, portsToGeoJSON } from "./mockData";
 import type { Bounds, Sensor, ShipType } from "./types";
 import { usePorts } from "./usePorts";
@@ -235,6 +237,7 @@ export default function App() {
   const [mapVisible, setMapVisible] = useState(false);
   const portHoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const portDetailPopupRef = useRef<maplibregl.Popup | null>(null);
+  const vesselDetailPopupRef = useRef<maplibregl.Popup | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(getInitialTheme);
   const themeRef = useRef(theme);
@@ -301,6 +304,7 @@ export default function App() {
       const wakeSrc = map.getSource("vessel-wake") as maplibregl.GeoJSONSource | undefined;
       if (wakeSrc) wakeSrc.setData({ type: "FeatureCollection", features: [] });
     }
+    vesselDetailPopupRef.current?.remove();
   }, []);
 
   const handleToggleCategory = useCallback((cat: ShipType) => {
@@ -620,7 +624,7 @@ export default function App() {
         m.getCanvas().style.cursor = "";
       });
 
-      // Vessel click: radius + trajectory + sidebar selection
+      // Vessel click: radius + trajectory + sidebar selection + popup
       const handleVesselClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
         const f = e.features?.[0];
         if (!f) return;
@@ -649,6 +653,38 @@ export default function App() {
           zoom: Math.max(m.getZoom(), 8),
           duration: 600,
         });
+
+        // Show vessel detail popup
+        const popupCoords = (f.geometry as any).coordinates as [number, number];
+        const popupShipType = p.shipType as string | undefined;
+        const popupMeta = VESSEL_META.find((mt) => mt.key === popupShipType);
+        const popupColor = popupMeta?.color ?? "#888";
+
+        const popupVessel = displayVessels.find((v) => v.id === mmsi);
+        if (!popupVessel) return;
+
+        // Close existing popup
+        vesselDetailPopupRef.current?.remove();
+
+        if (!vesselDetailPopupRef.current) {
+          vesselDetailPopupRef.current = new maplibregl.Popup({
+            closeButton: true,
+            closeOnClick: false,
+            maxWidth: "300px",
+            className: "vessel-detail-popup",
+            offset: 10,
+          });
+        }
+
+        const popup = vesselDetailPopupRef.current;
+        const popupContainer = document.createElement("div");
+        const popupRoot = createRoot(popupContainer);
+        popupRoot.render(<VesselPopup vessel={popupVessel} color={popupColor} />);
+
+        popup
+          .setLngLat([popupCoords[0], popupCoords[1]])
+          .setDOMContent(popupContainer)
+          .addTo(m);
 
         // Search radius
         const acqTs = sceneAcqTsRef.current;
@@ -759,6 +795,7 @@ export default function App() {
         if (trajSrc) trajSrc.setData({ type: "FeatureCollection", features: [] });
         const wakeSrc = m.getSource("vessel-wake") as maplibregl.GeoJSONSource | undefined;
         if (wakeSrc) wakeSrc.setData({ type: "FeatureCollection", features: [] });
+        vesselDetailPopupRef.current?.remove();
       });
 
       if (!sourceReady) setSourceReady(true);
