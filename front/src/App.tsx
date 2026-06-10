@@ -13,7 +13,7 @@ import VesselPopup from "./VesselPopup";
 import BottomBar from "./components/BottomBar";
 import TopBar, { StatusBadge, Spinner } from "./components/TopBar";
 import { vesselsToGeoJSON, portsToGeoJSON } from "./mockData";
-import type { Bounds, Sensor, ShipType } from "./types";
+import type { Bounds, Sensor, ShipType, Vessel } from "./types";
 import { usePorts } from "./hooks/usePorts";
 import { VESSEL_META, ICON_SIZE } from "./constants/vesselMeta";
 import { BASEMAP_LIGHT, BASEMAP_DARK } from "./constants/basemaps";
@@ -486,7 +486,7 @@ export default function App() {
           lng: coords[0],
           heading: p.heading as number,
           speed: p.speed as number,
-          shipType: popupShipType,
+          shipType: popupShipType as ShipType,
           destination: p.destination as string | undefined,
           ts: p.ts as string | undefined,
         };
