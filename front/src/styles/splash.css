@@ -1,0 +1,52 @@
+/* ── Splash Screen ─────────────────────── */
+#splash {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: #0f0f1c;
+  transition: opacity var(--transition-normal);
+  gap: 20px;
+  padding: 24px;
+}
+#splash.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+#splash svg {
+  display: block;
+  flex-shrink: 0;
+}
+#splash .splash-logo {
+  width: 64px;
+  height: 64px;
+}
+#splash .splash-title {
+  font: 600 20px system-ui;
+  color: #e2e2ed;
+  letter-spacing: -0.3px;
+}
+#splash .splash-subtitle {
+  font: 13px system-ui;
+  color: #6b7280;
+}
+#splash .splash-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); }
+}

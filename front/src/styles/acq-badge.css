@@ -1,0 +1,18 @@
+/* ── Acquisition Time Badge ────────────── */
+.acq-badge {
+  position: absolute;
+  top: -8px;
+  left: 0;
+  transform: translateY(-100%);
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font: 11px system-ui;
+  color: #fff;
+  pointer-events: none;
+}
+
+

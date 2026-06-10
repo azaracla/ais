@@ -1,0 +1,19 @@
+/* ── Top Bar ───────────────────────────── */
+.top-bar {
+  position: absolute;
+  top: 30px;
+  left: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  z-index: 25;
+  pointer-events: none;
+  transition: left 250ms ease;
+}
+.map-wrap.sidebar-open .top-bar {
+  left: 392px;
+}
+.top-bar > * { pointer-events: auto; }
+
+

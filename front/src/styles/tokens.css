@@ -1,0 +1,43 @@
+/* ═══════════════════════════════════════════
+   AIS Viewer — Design System
+   ════════════════════════════════════════ */
+
+/* ── Design Tokens ─────────────────────── */
+:root {
+  --color-bg-panel: rgba(255, 255, 255, 0.92);
+  --color-bg-panel-hover: rgba(255, 255, 255, 0.98);
+  --color-text: #1a1a2e;
+  --color-text-muted: #6b7280;
+  --color-text-dim: #9ca3af;
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-danger: #ef4444;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-dark: rgba(0, 0, 0, 0.15);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.18);
+  --blur-panel: blur(14px);
+  --font-ui: 13px/1.4 system-ui, -apple-system, sans-serif;
+  --font-mono: 12px/1.5 "SF Mono", "Cascadia Code", "JetBrains Mono", monospace;
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
+
+[data-theme="dark"] {
+  --color-bg-panel: rgba(15, 15, 28, 0.92);
+  --color-bg-panel-hover: rgba(20, 20, 38, 0.96);
+  --color-text: #e2e2ed;
+  --color-text-muted: #9ca3af;
+  --color-text-dim: #6b7280;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-dark: rgba(255, 255, 255, 0.12);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.5);
+}

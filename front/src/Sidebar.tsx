@@ -2,31 +2,9 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { FixedSizeList as List } from "react-window";
 import { useVesselSearch } from "./useVesselSearch";
 import VesselDetails from "./VesselDetails";
+import VesselRow from "./components/Sidebar/VesselRow";
 import type { Vessel, VesselSummary, ShipType } from "./types";
-
-const SHIP_TYPE_KEYS: ShipType[] = [
-  "cargo",
-  "tanker",
-  "passenger",
-  "fishing",
-  "pleasure",
-];
-
-const CAT_COLORS: Record<ShipType, string> = {
-  cargo: "#3b82f6",
-  tanker: "#ef4444",
-  passenger: "#22c55e",
-  fishing: "#f59e0b",
-  pleasure: "#a855f7",
-};
-
-const SORT_OPTIONS = [
-  { key: "speed", label: "Speed" },
-  { key: "name", label: "Name" },
-  { key: "type", label: "Type" },
-] as const;
-
-const ITEM_SIZE = 56; // Height of each sidebar item in pixels
+import { SHIP_TYPE_KEYS, CAT_COLORS, SORT_OPTIONS, SIDEBAR_ITEM_SIZE } from "./constants/sidebar";
 
 interface Props {
   vessels: Vessel[];
@@ -171,40 +149,21 @@ export default function Sidebar({
   const isDetailMode = selectedMmsi !== null && selectedVessel !== null;
 
   // Row renderer for virtualized list
-  const VesselRow = useCallback(
+  const VesselRowComponent = useCallback(
     ({ index, style }: { index: number; style: React.CSSProperties }) => {
       const v = filteredVessels[index];
       if (!v) return null;
       const isSelected = selectedMmsis?.has(v.id) || selectedMmsi === v.id;
       return (
-        <div
-          style={style}
+        <VesselRow
+          vessel={v}
+          isSelected={isSelected}
           onClick={() => onSelectVessel(v.id)}
-          className={`sidebar-item${isSelected ? " selected" : ""}`}
-        >
-          <span
-            className="sidebar-item-icon"
-            style={{ background: CAT_COLORS[v.shipType] }}
-          />
-          <span className="sidebar-item-body">
-            <span className="sidebar-item-name">{v.name}</span>
-            {v.destination && (
-              <span className="sidebar-item-dest">{v.destination}</span>
-            )}
-          </span>
-          <span className="sidebar-item-right">
-            <span className="sidebar-item-speed">
-              {v.speed.toFixed(1)}
-              <span className="sidebar-item-unit">kn</span>
-            </span>
-            <span className="sidebar-item-heading">
-              {v.heading}&deg;
-            </span>
-          </span>
-        </div>
+          style={style}
+        />
       );
     },
-    [filteredVessels, selectedMmsi, selectedMmsis, onSelectVessel, CAT_COLORS]
+    [filteredVessels, selectedMmsi, selectedMmsis, onSelectVessel]
   );
 
   return (
@@ -422,12 +381,12 @@ export default function Sidebar({
               <div className="sidebar-list">
                 {filteredVessels.length > 0 ? (
                   <List
-                    height={Math.min(filteredVessels.length * ITEM_SIZE, 600)}
+                    height={Math.min(filteredVessels.length * SIDEBAR_ITEM_SIZE, 600)}
                     itemCount={filteredVessels.length}
-                    itemSize={ITEM_SIZE}
+                    itemSize={SIDEBAR_ITEM_SIZE}
                     width="100%"
                   >
-                    {VesselRow}
+                    {VesselRowComponent}
                   </List>
                 ) : (
                   !loading && !error && (

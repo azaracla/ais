@@ -1,5 +1,5 @@
 import "maplibre-gl/dist/maplibre-gl.css";
-import "./style.css";
+import "./styles/index.css";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import maplibregl from "maplibre-gl";
@@ -153,7 +153,6 @@ export default function App() {
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "light" ? "dark" : "light"));
   }, []);
-  void toggleTheme; // réactivé quand le bouton soleil revient
 
   // Track shift key state for multi-select
   useEffect(() => {
@@ -1050,7 +1049,7 @@ export default function App() {
       />
 
       {/* Top bar */}
-      <TopBar>
+      <TopBar theme={theme} onToggleTheme={toggleTheme}>
         {!ready && (
           <StatusBadge type="info">
             <Spinner />

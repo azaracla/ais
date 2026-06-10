@@ -1,0 +1,14 @@
+
+
+/* ── Spinner (inline) ──────────────────── */
+.spinner-sm {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border-dark);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}

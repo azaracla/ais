@@ -1,0 +1,15 @@
+/* Main styles entry point */
+@import "./tokens.css";
+@import "./reset.css";
+@import "./splash.css";
+@import "./panels.css";
+@import "./buttons.css";
+@import "./forms.css";
+@import "./badges.css";
+@import "./spinner.css";
+@import "./topbar.css";
+@import "./legend.css";
+@import "./theme.css";
+@import "./acq-badge.css";
+@import "./sidebar.css";
+@import "./main.css";

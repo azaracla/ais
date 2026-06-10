@@ -1,0 +1,11 @@
+/* ── Reset ─────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 0;
+  background: #0f0f1a;
+  font: var(--font-ui);
+  color: var(--color-text);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}

@@ -1,0 +1,18 @@
+/* ── Theme Toggle ──────────────────────── */
+.theme-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+.theme-toggle:hover { transform: scale(1.1); }
+
+

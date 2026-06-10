@@ -1,0 +1,47 @@
+/* ── Input / Select ────────────────────── */
+.input-text {
+  font: 13px system-ui;
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--color-text);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.input-text:focus { border-color: var(--color-accent); }
+.input-dimmed { opacity: 0.5; cursor: not-allowed; }
+select.input-text { cursor: pointer; max-width: 200px; }
+
+/* Date input — more prominent */
+.date-input {
+  font: 600 14px system-ui;
+  padding: 6px 12px;
+  min-width: 210px;
+  color-scheme: var(--color-scheme, normal);
+}
+
+/* Compact date input inside timeline */
+.timeline-bar .date-input {
+  font: 600 13px system-ui;
+  padding: 4px 8px;
+  min-width: 0;
+  width: 170px;
+  flex-shrink: 0;
+}
+
+
+/* ── Checkbox ──────────────────────────── */
+.checkbox-label {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}

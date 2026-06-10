@@ -1,0 +1,17 @@
+/* ── Glass Panel (shared) ──────────────── */
+.panel {
+  background: var(--color-bg-panel);
+  backdrop-filter: var(--blur-panel);
+  -webkit-backdrop-filter: var(--blur-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
+  font: var(--font-ui);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.panel-sm { padding: 6px 12px; border-radius: var(--radius-sm); }
+.panel-md { padding: 8px 14px; }
+.panel-lg { padding: 10px 16px; }
+
+

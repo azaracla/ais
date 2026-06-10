@@ -1,0 +1,14 @@
+
+
+/* ── Status Badges ─────────────────────── */
+.badge {
+  font: 13px system-ui;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.badge-loading { color: var(--color-accent); }
+.badge-error { color: var(--color-danger); }
+.badge-info { color: var(--color-text-muted); }
+.badge-warning { color: var(--color-warning); }
+.badge-dim { color: var(--color-text-dim); font-size: 11px; }

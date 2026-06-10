@@ -1,11 +1,21 @@
 import type { ReactNode } from "react";
+import ThemeToggle from "./ThemeToggle";
 
 interface TopBarProps {
   children?: ReactNode;
+  theme?: "light" | "dark";
+  onToggleTheme?: () => void;
 }
 
-export default function TopBar({ children }: TopBarProps) {
-  return <div className="top-bar">{children}</div>;
+export default function TopBar({ children, theme = "light", onToggleTheme }: TopBarProps) {
+  return (
+    <div className="top-bar">
+      {children}
+      {onToggleTheme && (
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      )}
+    </div>
+  );
 }
 
 interface StatusBadgeProps {
