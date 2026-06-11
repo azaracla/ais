@@ -165,7 +165,7 @@ export function useTimeline(date: string, bounds: Bounds | null, selectedMmsis: 
       });
     };
 
-    ticker = setInterval(tick, 2000);
+    ticker = setInterval(tick, 1000);
     tick(); // first tick immediately
 
     return () => {
