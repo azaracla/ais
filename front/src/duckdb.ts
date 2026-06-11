@@ -242,12 +242,13 @@ export async function queryVesselHistory(
   mmsi: number,
   vesselTs: string | Date,
   daysBack = 3,
+  limit = 1000,
 ): Promise<{ lat: number; lng: number; ts: Date; heading: number | null }[]> {
   if (!conn) throw new Error("DuckDB not initialized");
 
   // Generate cache key
   const cacheKey = generateCacheKey(
-    `vesselHistory:${mmsi}:${vesselTs}:${daysBack}`
+    `vesselHistory:${mmsi}:${vesselTs}:${daysBack}:${limit}`
   );
   const cached = getCached<{ lat: number; lng: number; ts: Date; heading: number | null }[]>(cacheKey);
   if (cached) {
@@ -257,6 +258,7 @@ export async function queryVesselHistory(
 
   const validatedMmsi = sanitizeNumber(mmsi);
   const validatedDaysBack = sanitizeNumber(daysBack);
+  const validatedLimit = sanitizeNumber(limit);
 
   const end = new Date(vesselTs);
   const start = new Date(end);
@@ -279,6 +281,7 @@ export async function queryVesselHistory(
       AND lat IS NOT NULL
       AND lon IS NOT NULL
     ORDER BY ts ASC
+    LIMIT ${validatedLimit}
   `;
 
   const asyncResult = await conn.send(sql);
