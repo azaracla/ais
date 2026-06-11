@@ -11,7 +11,7 @@ import Sidebar from "./Sidebar";
 import VesselPopup from "./VesselPopup";
 import BottomBar from "./components/BottomBar";
 import TopBar, { StatusBadge, Spinner } from "./components/TopBar";
-import { vesselsToGeoJSON, portsToGeoJSON } from "./mockData";
+import { useVesselsGeoJSON, portsToGeoJSON } from "./mockData";
 import type { Bounds, Sensor, ShipType, Vessel } from "./types";
 import { usePorts } from "./hooks/usePorts";
 import { VESSEL_META, ICON_SIZE } from "./constants/vesselMeta";
@@ -74,6 +74,7 @@ export default function App() {
 
   const timeline = useTimeline(date, bounds, selectedMmsis, setDate);
   const displayVessels = timeline.isActive ? timeline.timelineVessels : vessels;
+  const geojson = useVesselsGeoJSON(displayVessels);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
@@ -704,7 +705,7 @@ export default function App() {
       | maplibregl.GeoJSONSource
       | undefined;
     if (source) {
-      source.setData(vesselsToGeoJSON(displayVessels));
+      source.setData(geojson);
     }
   }, [displayVessels, sourceReady]);
 

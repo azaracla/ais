@@ -119,6 +119,15 @@ export function vesselsToGeoJSON(vessels: Vessel[]): GeoJSON.FeatureCollection {
   };
 }
 
+// Memoized version for React components
+import { useMemo } from "react";
+
+export function useVesselsGeoJSON(vessels: Vessel[]): GeoJSON.FeatureCollection {
+  return useMemo(() => {
+    return vesselsToGeoJSON(vessels);
+  }, [vessels]);
+}
+
 export function portsToGeoJSON(ports: PortCongestion[]): GeoJSON.FeatureCollection {
   const maxVessels = Math.max(1, ...ports.map((p) => p.vessels_in_port));
   return {
