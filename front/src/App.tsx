@@ -1,5 +1,5 @@
 import "./styles/index.css";
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import type maplibregl from "maplibre-gl";
 import { useVessels } from "./hooks/useVessels";
@@ -75,6 +75,7 @@ export default function App() {
   const timeline = useTimeline(date, bounds, selectedMmsis, setDate);
   const displayVessels = timeline.isActive ? timeline.timelineVessels : vessels;
   const geojson = useVesselsGeoJSON(displayVessels);
+  const iconImageExprMemo = useMemo(() => iconImageExpr(), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
@@ -278,7 +279,7 @@ export default function App() {
         filter: categoryFilter(activeCategories),
         minzoom: 6.5,
         layout: {
-          "icon-image": iconImageExpr(),
+          "icon-image": iconImageExprMemo,
           "icon-rotate": ["get", "heading"],
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
