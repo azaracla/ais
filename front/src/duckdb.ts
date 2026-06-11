@@ -1,8 +1,10 @@
-import * as duckdb from "@duckdb/duckdb-wasm";
-import duckdb_wasm_eh from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
-import DuckDBWorkerEH from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?worker";
 import type { Vessel, VesselSummary, Bounds, WakePoint, PortCongestion, PortCall } from "./types";
 import { shipTypeAISToCategory } from "./types";
+
+// Lazy loaded DuckDB module
+let duckdbModule: typeof import("@duckdb/duckdb-wasm") | null = null;
+let duckdb_wasm_eh: string | null = null;
+let DuckDBWorkerEH: any = null;
 
 // SQL parameter sanitization helpers
 function sanitizeNumber(n: unknown): number {
@@ -45,16 +47,16 @@ function sanitizeBounds(b: Bounds | null): Bounds | null {
   };
 }
 
-let db: duckdb.AsyncDuckDB | null = null;
-let conn: duckdb.AsyncDuckDBConnection | null = null;
-let portConn: duckdb.AsyncDuckDBConnection | null = null;
+let db: any | null = null;
+let conn: any | null = null;
+let portConn: any | null = null;
 let initPromise: Promise<void> | null = null;
 let duckDbReady = false;
 let querySeq = 0;
 
 export function cancelQuery(): Promise<boolean> {
   const result = conn?.cancelSent() ?? Promise.resolve(false);
-  result.then((cancelled) => {
+  result.then((cancelled: boolean) => {
     if (cancelled) console.log(`[DuckDB] ⏹ q#${querySeq} cancelled`);
   });
   return result;
@@ -68,8 +70,20 @@ export async function initDuckDB(): Promise<void> {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
+    // Lazy load DuckDB module and assets
+    if (!duckdbModule) {
+      const [module, wasmUrl, workerModule] = await Promise.all([
+        import("@duckdb/duckdb-wasm"),
+        import("@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url").then(m => m.default),
+        import("@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?worker").then(m => m.default)
+      ]);
+      duckdbModule = module;
+      duckdb_wasm_eh = wasmUrl;
+      DuckDBWorkerEH = workerModule;
+    }
+    
     const worker = new DuckDBWorkerEH();
-    db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
+    db = new duckdbModule.AsyncDuckDB(new duckdbModule.ConsoleLogger(), worker);
     await db.instantiate(duckdb_wasm_eh, "?modulePath=");
 
     await db.open({
