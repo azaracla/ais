@@ -54,6 +54,40 @@ let initPromise: Promise<void> | null = null;
 let duckDbReady = false;
 let querySeq = 0;
 
+// Cache LRU pour les requêtes
+interface CacheEntry {
+  key: string;
+  data: any;
+  timestamp: number;
+}
+
+const queryCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_SIZE = 100;
+
+function generateCacheKey(sql: string, params?: Record<string, unknown>): string {
+  return sql + (params ? JSON.stringify(params) : "");
+}
+
+function getCached<T>(key: string): T | null {
+  const entry = queryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL) {
+    queryCache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setCached<T>(key: string, data: T): void {
+  queryCache.set(key, { key, data, timestamp: Date.now() });
+  // Limiter la taille du cache (LRU)
+  if (queryCache.size > MAX_CACHE_SIZE) {
+    const firstKey = queryCache.keys().next().value;
+    if (firstKey) queryCache.delete(firstKey);
+  }
+}
+
 export function cancelQuery(): Promise<boolean> {
   const result = conn?.cancelSent() ?? Promise.resolve(false);
   result.then((cancelled: boolean) => {
@@ -80,6 +114,10 @@ export async function initDuckDB(): Promise<void> {
       duckdbModule = module;
       duckdb_wasm_eh = wasmUrl;
       DuckDBWorkerEH = workerModule;
+    }
+    
+    if (!duckdbModule || !duckdb_wasm_eh || !DuckDBWorkerEH) {
+      throw new Error("Failed to load DuckDB module or assets");
     }
     
     const worker = new DuckDBWorkerEH();
@@ -119,6 +157,16 @@ export async function queryLastPositions(
   if (!conn) throw new Error("DuckDB not initialized");
 
   const qid = ++querySeq;
+  
+  // Generate cache key
+  const cacheKey = generateCacheKey(
+    `lastPositions:${date}:${bounds ? JSON.stringify(bounds) : "null"}:${limit}`
+  );
+  const cached = getCached<Vessel[]>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] HIT for ${cacheKey}`);
+    return cached;
+  }
 
   const d = new Date(date);
   const year = sanitizeNumber(d.getUTCFullYear());
@@ -184,6 +232,9 @@ export async function queryLastPositions(
     `total: ${(t2 - t0).toFixed(0)}ms)`
   );
 
+  // Cache the result
+  setCached(cacheKey, vessels);
+
   return vessels;
 }
 
@@ -193,6 +244,16 @@ export async function queryVesselHistory(
   daysBack = 3,
 ): Promise<{ lat: number; lng: number; ts: Date; heading: number | null }[]> {
   if (!conn) throw new Error("DuckDB not initialized");
+
+  // Generate cache key
+  const cacheKey = generateCacheKey(
+    `vesselHistory:${mmsi}:${vesselTs}:${daysBack}`
+  );
+  const cached = getCached<{ lat: number; lng: number; ts: Date; heading: number | null }[]>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] HIT for ${cacheKey}`);
+    return cached;
+  }
 
   const validatedMmsi = sanitizeNumber(mmsi);
   const validatedDaysBack = sanitizeNumber(daysBack);
@@ -225,12 +286,17 @@ export async function queryVesselHistory(
   for await (const chunk of asyncResult) {
     rows.push(...chunk);
   }
-  return rows.map((row: any) => ({
+  const result = rows.map((row: any) => ({
     lat: Number(row.lat) / 1e5,
     lng: Number(row.lon) / 1e5,
     ts: new Date(Number(row.ts) * 1000),
     heading: row.heading != null ? Number(row.heading) : null,
-  }));
+  })) as { lat: number; lng: number; ts: Date; heading: number | null }[];
+  
+  // Cache the result
+  setCached<{ lat: number; lng: number; ts: Date; heading: number | null }[]>(cacheKey, result);
+  
+  return result;
 }
 
 export async function queryPositionsAtTime(
@@ -240,6 +306,16 @@ export async function queryPositionsAtTime(
   limit = 100000,
 ): Promise<Vessel[]> {
   if (!conn) throw new Error("DuckDB not initialized");
+
+  // Generate cache key
+  const cacheKey = generateCacheKey(
+    `positionsAtTime:${date}:${timestamp}:${bounds ? JSON.stringify(bounds) : "null"}:${limit}`
+  );
+  const cached = getCached<Vessel[]>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] HIT for ${cacheKey}`);
+    return cached;
+  }
 
   const d = new Date(date);
   const year = sanitizeNumber(d.getUTCFullYear());
@@ -281,7 +357,12 @@ export async function queryPositionsAtTime(
   for await (const chunk of asyncResult) {
     rows.push(...chunk);
   }
-  return rows.map((row: any) => toVessel(row));
+  const result = rows.map((row: any) => toVessel(row));
+  
+  // Cache the result
+  setCached(cacheKey, result);
+  
+  return result;
 }
 
 export async function queryVesselWake(
@@ -290,6 +371,16 @@ export async function queryVesselWake(
   endTime: string,
 ): Promise<Map<number, WakePoint[]>> {
   if (!conn || mmsis.length === 0) return new Map();
+
+  // Generate cache key
+  const cacheKey = generateCacheKey(
+    `vesselWake:${JSON.stringify(mmsis.sort())}:${startTime}:${endTime}`
+  );
+  const cached = getCached<Map<number, WakePoint[]>>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] HIT for ${cacheKey}`);
+    return cached;
+  }
 
   const validatedMmsis = mmsis.map(sanitizeNumber);
   const startTs = sanitizeTimestamp(new Date(startTime).toISOString());
@@ -321,6 +412,10 @@ export async function queryVesselWake(
       });
     }
   }
+  
+  // Cache the result
+  setCached(cacheKey, map);
+  
   return map;
 }
 
@@ -328,6 +423,16 @@ export async function searchVessels(query: string, limit = 15): Promise<VesselSu
   if (!duckDbReady) await initDuckDB();
   if (!conn) throw new Error("DuckDB not initialized");
   if (!query.trim()) return [];
+
+  // Generate cache key
+  const cacheKey = generateCacheKey(
+    `searchVessels:${query}:${limit}`
+  );
+  const cached = getCached<VesselSummary[]>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] HIT for ${cacheKey}`);
+    return cached;
+  }
 
   const validatedQuery = sanitizeString(query);
   const validatedLimit = sanitizeNumber(limit);
@@ -345,15 +450,30 @@ export async function searchVessels(query: string, limit = 15): Promise<VesselSu
   for await (const chunk of result) {
     rows.push(...chunk);
   }
-  return rows.map((row: any) => ({
+  const vessels = rows.map((row: any) => ({
     mmsi: Number(row.mmsi),
     name: row.name ?? "Unknown",
     shipType: shipTypeAISToCategory(row.ship_type != null ? Number(row.ship_type) : null),
   }));
+  
+  // Cache the result
+  setCached(cacheKey, vessels);
+  
+  return vessels;
 }
 
 export async function queryPortCongestion(date: string): Promise<PortCongestion[]> {
   if (!portConn) throw new Error("DuckDB not initialized");
+
+  // Generate cache key
+  const cacheKey = generateCacheKey(
+    `portCongestion:${date}`
+  );
+  const cached = getCached<PortCongestion[]>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] HIT for ${cacheKey}`);
+    return cached;
+  }
 
   const validatedDate = sanitizeDate(date.slice(0, 10));
   const base = "https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/gold";
@@ -382,7 +502,12 @@ export async function queryPortCongestion(date: string): Promise<PortCongestion[
   for await (const chunk of asyncResult) {
     rows.push(...chunk);
   }
-  return rows as PortCongestion[];
+  const result = rows as PortCongestion[];
+  
+  // Cache the result
+  setCached(cacheKey, result);
+  
+  return result;
 }
 
 export async function queryPortCalls(
@@ -391,6 +516,16 @@ export async function queryPortCalls(
   limit = 50,
 ): Promise<PortCall[]> {
   if (!portConn) throw new Error("DuckDB not initialized");
+
+  // Generate cache key
+  const cacheKey = generateCacheKey(
+    `portCalls:${portLoCode}:${date ?? ""}:${limit}`
+  );
+  const cached = getCached<PortCall[]>(cacheKey);
+  if (cached) {
+    console.log(`[Cache] HIT for ${cacheKey}`);
+    return cached;
+  }
 
   const base = "https://ais-public-prod.s3.gra.io.cloud.ovh.net/v3/ais.ducklake.files/gold";
   const validatedPortLoCode = sanitizeString(portLoCode);
@@ -422,7 +557,12 @@ export async function queryPortCalls(
   for await (const chunk of asyncResult) {
     rows.push(...chunk);
   }
-  return rows as PortCall[];
+  const result = rows as PortCall[];
+  
+  // Cache the result
+  setCached(cacheKey, result);
+  
+  return result;
 }
 
 function toVessel(row: any): Vessel {
