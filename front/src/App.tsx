@@ -1,8 +1,7 @@
-import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles/index.css";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import maplibregl from "maplibre-gl";
+import type maplibregl from "maplibre-gl";
 import { useVessels } from "./hooks/useVessels";
 import { useTimeline } from "./hooks/useTimeline";
 import { queryVesselHistory, queryPortCalls } from "./duckdb";
@@ -43,6 +42,20 @@ export default function App() {
   const portHoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const portDetailPopupRef = useRef<maplibregl.Popup | null>(null);
   const vesselDetailPopupRef = useRef<maplibregl.Popup | null>(null);
+  
+  // Lazy load MapLibre GL
+  const [maplibreglRuntime, setMaplibreglRuntime] = useState<typeof maplibregl | null>(null);
+  const [maplibreLoading, setMaplibreLoading] = useState(true);
+  
+  useEffect(() => {
+    Promise.all([
+      import("maplibre-gl"),
+      import("maplibre-gl/dist/maplibre-gl.css")
+    ]).then(([module]) => {
+      setMaplibreglRuntime(module.default);
+      setMaplibreLoading(false);
+    });
+  }, []);
 
   const [theme, setTheme] = useState<"light" | "dark">(getInitialTheme);
   const themeRef = useRef(theme);
@@ -181,9 +194,12 @@ export default function App() {
 
   // Initialize map
   useEffect(() => {
-    if (!mapContainer.current || mapRef.current) return;
+    if (!maplibreglRuntime || !mapContainer.current || mapRef.current) return;
+    
+    // Extract non-null maplibregl for type safety in closures
+    const ml = maplibreglRuntime;
 
-    const map = new maplibregl.Map({
+    const map = new ml.Map({
       container: mapContainer.current,
       style: theme === "dark" ? BASEMAP_DARK : BASEMAP_LIGHT,
       center: [3.1, 41.7],
@@ -192,11 +208,11 @@ export default function App() {
     });
 
     map.addControl(
-      new maplibregl.NavigationControl(),
+      new ml.NavigationControl(),
       "top-right",
     );
     map.addControl(
-      new maplibregl.ScaleControl({ unit: "metric", maxWidth: 200 }),
+      new ml.ScaleControl({ unit: "metric", maxWidth: 200 }),
       "top-left",
     );
 
@@ -381,7 +397,7 @@ export default function App() {
 
 
       // Trajectory arrow hover: show time
-      const trajPopup = new maplibregl.Popup({
+      const trajPopup = new ml.Popup({
         closeButton: false,
         closeOnClick: false,
         offset: 8,
@@ -404,7 +420,7 @@ export default function App() {
       });
 
       // Vessel hover: tooltip
-      const hoverPopup = new maplibregl.Popup({
+      const hoverPopup = new ml.Popup({
         closeButton: false,
         closeOnClick: false,
         offset: 6,
@@ -495,7 +511,7 @@ export default function App() {
         vesselDetailPopupRef.current?.remove();
 
         if (!vesselDetailPopupRef.current) {
-          vesselDetailPopupRef.current = new maplibregl.Popup({
+          vesselDetailPopupRef.current = new ml.Popup({
             closeButton: true,
             closeOnClick: false,
             maxWidth: "300px",
@@ -695,7 +711,9 @@ export default function App() {
   // Toggle port congestion layer
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !sourceReady) return;
+    if (!map || !sourceReady || !maplibreglRuntime) return;
+    
+    const ml = maplibreglRuntime;
 
     if (showPortCongestion) {
       // Add source and layer if they don't exist
@@ -740,7 +758,7 @@ export default function App() {
 
       // Add hover popup if it doesn't exist
       if (!portHoverPopupRef.current) {
-        portHoverPopupRef.current = new maplibregl.Popup({
+        portHoverPopupRef.current = new ml.Popup({
           closeButton: false,
           closeOnClick: false,
           offset: 8,
@@ -749,7 +767,7 @@ export default function App() {
       }
       // Add click popup if it doesn't exist
       if (!portDetailPopupRef.current) {
-        portDetailPopupRef.current = new maplibregl.Popup({
+        portDetailPopupRef.current = new ml.Popup({
           closeButton: true,
           closeOnClick: false,
           maxWidth: "320px",
@@ -983,7 +1001,9 @@ export default function App() {
   // Scene footprints
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !sourceReady) return;
+    if (!map || !sourceReady || !maplibreglRuntime) return;
+    
+    const ml = maplibreglRuntime;
 
     ["scene-fill", "scene-outline"].forEach((id) => {
       if (map.getLayer(id)) map.removeLayer(id);
@@ -1018,7 +1038,7 @@ export default function App() {
         "vessel-radius-layer",
       );
 
-      const popup = new maplibregl.Popup({
+      const popup = new ml.Popup({
         closeButton: false,
         closeOnClick: false,
         offset: 10,
@@ -1066,7 +1086,13 @@ export default function App() {
         width={sidebarWidth}
         onWidthChange={setSidebarWidth}
       />
-      <div ref={mapContainer} className="map-container" />
+      {!maplibreLoading && <div ref={mapContainer} className="map-container" />}
+      {maplibreLoading && (
+        <div className="map-container map-loading">
+          <Spinner />
+          Loading map library...
+        </div>
+      )}
 
       {/* Backdrop — mobile sidebar dismiss */}
       <div
@@ -1076,7 +1102,13 @@ export default function App() {
 
       {/* Top bar */}
       <TopBar theme={theme} onToggleTheme={toggleTheme}>
-        {!ready && (
+        {maplibreLoading && (
+          <StatusBadge type="info">
+            <Spinner />
+            Loading map library...
+          </StatusBadge>
+        )}
+        {!ready && !maplibreLoading && (
           <StatusBadge type="info">
             <Spinner />
             Initializing DuckDB...
