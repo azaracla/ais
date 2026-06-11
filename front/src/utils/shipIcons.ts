@@ -1,6 +1,12 @@
 import { ICON_SIZE, ARROW_SIZE, VESSEL_META } from "../constants/vesselMeta";
 import { lightenColor } from "./colorUtils";
 
+// Cache for ship icons: key = `${color}:${size}:${theme}`, value = ImageData
+const shipIconCache = new Map<string, ImageData>();
+
+// Cache for arrow icons: key = `${color}:${theme}`, value = ImageData
+const arrowIconCache = new Map<string, ImageData>();
+
 /**
  * Draw a ship icon with the given color, size, and theme
  */
@@ -9,6 +15,10 @@ export function drawShipIcon(
   size: number,
   theme: "light" | "dark",
 ): ImageData {
+  const cacheKey = `${color}:${size}:${theme}`;
+  const cached = shipIconCache.get(cacheKey);
+  if (cached) return cached;
+
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -73,13 +83,19 @@ export function drawShipIcon(
   ctx.stroke();
 
   ctx.restore();
-  return ctx.getImageData(0, 0, size, size);
+  const imageData = ctx.getImageData(0, 0, size, size);
+  shipIconCache.set(cacheKey, imageData);
+  return imageData;
 }
 
 /**
  * Create an arrow icon for trajectory direction
  */
 export function makeArrowIcon(color: string, theme: "light" | "dark"): ImageData {
+  const cacheKey = `${color}:${theme}`;
+  const cached = arrowIconCache.get(cacheKey);
+  if (cached) return cached;
+
   const s = ARROW_SIZE;
   const canvas = document.createElement("canvas");
   canvas.width = s;
@@ -104,7 +120,9 @@ export function makeArrowIcon(color: string, theme: "light" | "dark"): ImageData
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  return ctx.getImageData(0, 0, s, s);
+  const imageData = ctx.getImageData(0, 0, s, s);
+  arrowIconCache.set(cacheKey, imageData);
+  return imageData;
 }
 
 /**
