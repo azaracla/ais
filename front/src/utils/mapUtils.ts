@@ -22,3 +22,19 @@ export function categoryFilter(active: Set<ShipType>): FilterSpecification {
   if (active.size === 5) return ["has", "shipType"];
   return ["in", ["get", "shipType"], ["literal", Array.from(active)]] as any;
 }
+
+/**
+ * Create a filter for speed range
+ */
+export function speedFilter(minSpeed: number, maxSpeed: number): FilterSpecification {
+  return ["all", [">=", ["get", "speed"], minSpeed], ["<=", ["get", "speed"], maxSpeed]] as any;
+}
+
+/**
+ * Combine multiple filters with AND logic
+ */
+export function combineFilters(...filters: FilterSpecification[]): FilterSpecification {
+  if (filters.length === 0) return ["has", "id"];
+  if (filters.length === 1) return filters[0];
+  return ["all", ...filters] as any;
+}

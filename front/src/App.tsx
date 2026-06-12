@@ -17,7 +17,7 @@ import { usePorts } from "./hooks/usePorts";
 import { VESSEL_META, ICON_SIZE } from "./constants/vesselMeta";
 import { BASEMAP_LIGHT, BASEMAP_DARK } from "./constants/basemaps";
 import { drawShipIcon, makeArrowIcon } from "./utils/shipIcons";
-import { categoryFilter, iconImageExpr } from "./utils/mapUtils";
+import { categoryFilter, speedFilter, combineFilters, iconImageExpr } from "./utils/mapUtils";
 import { getInitialTheme } from "./utils/themeUtils";
 import { formatTrajTime, escapeHtml } from "./utils/formatUtils";
 import { bearing } from "./utils/geoUtils";
@@ -248,7 +248,7 @@ export default function App() {
         id: "vessel-dots",
         type: "circle",
         source: "vessels",
-        filter: categoryFilter(activeCategories),
+        filter: combineFilters(categoryFilter(activeCategories), speedFilter(speedRange[0], speedRange[1])),
         minzoom: 0,
         maxzoom: 8,
         paint: {
@@ -284,7 +284,7 @@ export default function App() {
         id: "vessel-point",
         type: "symbol",
         source: "vessels",
-        filter: categoryFilter(activeCategories),
+        filter: combineFilters(categoryFilter(activeCategories), speedFilter(speedRange[0], speedRange[1])),
         minzoom: 6.5,
         layout: {
           "icon-image": iconImageExprMemo,
@@ -950,15 +950,19 @@ export default function App() {
     wakeSrc.setData({ type: "FeatureCollection", features });
   }, [timeline.wakeData, timeline.isActive, displayVessels, selectedMmsis, sourceReady]);
 
-  // Update vessel layer filter when categories change
+  // Update vessel layer filter when categories or speed range change
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourceReady) return;
-    const filter = categoryFilter(activeCategories);
+    const filters = [
+      categoryFilter(activeCategories),
+      speedFilter(speedRange[0], speedRange[1]),
+    ];
+    const filter = combineFilters(...filters);
     if (map.getLayer("vessel-dots")) map.setFilter("vessel-dots", filter);
     if (map.getLayer("vessel-point")) map.setFilter("vessel-point", filter);
     if (map.getLayer("vessel-label")) map.setFilter("vessel-label", filter);
-  }, [activeCategories, sourceReady]);
+  }, [activeCategories, speedRange, sourceReady]);
 
   // Toggle vessel name labels
   useEffect(() => {
@@ -970,7 +974,7 @@ export default function App() {
           id: "vessel-label",
           type: "symbol",
           source: "vessels",
-          filter: categoryFilter(activeCategories),
+          filter: combineFilters(categoryFilter(activeCategories), speedFilter(speedRange[0], speedRange[1])),
           minzoom: 8,
           layout: {
             "text-field": ["get", "name"],

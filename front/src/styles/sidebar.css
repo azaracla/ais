@@ -271,6 +271,16 @@
   pointer-events: none;
   margin: 0;
 }
+.speed-range-min {
+  z-index: 3;
+}
+.speed-range-max {
+  z-index: 2;
+}
+.speed-range::-webkit-slider-thumb,
+.speed-range::-moz-range-thumb {
+  pointer-events: auto !important;
+}
 .speed-range::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
@@ -288,7 +298,7 @@
   box-shadow: var(--shadow-sm);
   cursor: pointer;
   margin-top: -5px;
-  pointer-events: auto;
+  pointer-events: auto !important;
 }
 .speed-range::-moz-range-track {
   height: 4px;
