@@ -42,19 +42,27 @@ export default function App() {
   const portHoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const portDetailPopupRef = useRef<maplibregl.Popup | null>(null);
   const vesselDetailPopupRef = useRef<maplibregl.Popup | null>(null);
+  const vesselDetailPopupRootRef = useRef<ReturnType<typeof createRoot> | null>(null);
+  const trajPopupRef = useRef<maplibregl.Popup | null>(null);
+  const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
   
-  // Lazy load MapLibre GL
+  // Lazy load MapLibre GL and initialize map
   const [maplibreglRuntime, setMaplibreglRuntime] = useState<typeof maplibregl | null>(null);
   const [maplibreLoading, setMaplibreLoading] = useState(true);
   
   useEffect(() => {
-    Promise.all([
-      import("maplibre-gl"),
-      import("maplibre-gl/dist/maplibre-gl.css")
-    ]).then(([module]) => {
-      setMaplibreglRuntime(module.default);
-      setMaplibreLoading(false);
-    });
+    if (!maplibreglRuntime) {
+      Promise.all([
+        import("maplibre-gl"),
+        import("maplibre-gl/dist/maplibre-gl.css")
+      ]).then(([module]) => {
+        setMaplibreglRuntime(module.default);
+        setMaplibreLoading(false);
+      }).catch((e) => {
+        console.error("Failed to load MapLibre GL:", e);
+        setMaplibreLoading(false);
+      });
+    }
   }, []);
 
   const [theme, setTheme] = useState<"light" | "dark">(getInitialTheme);
@@ -399,63 +407,67 @@ export default function App() {
 
 
       // Trajectory arrow hover: show time
-      const trajPopup = new ml.Popup({
-        closeButton: false,
-        closeOnClick: false,
-        offset: 8,
-        className: "traj-tooltip",
-      });
+      if (!trajPopupRef.current) {
+        trajPopupRef.current = new ml.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          offset: 8,
+          className: "traj-tooltip",
+        });
+      }
       m.on("mousemove", "vt-arrows", (e) => {
         const f = e.features?.[0];
         if (!f?.properties?.ts) return;
         m.getCanvas().style.cursor = "crosshair";
-        trajPopup
-          .setLngLat(e.lngLat)
-          .setHTML(
+        trajPopupRef.current
+          ?.setLngLat(e.lngLat)
+          ?.setHTML(
             `<span class="traj-tooltip-text">${escapeHtml(formatTrajTime(f.properties.ts))}</span>`,
           )
-          .addTo(m);
+          ?.addTo(m);
       });
       m.on("mouseleave", "vt-arrows", () => {
-        trajPopup.remove();
+        trajPopupRef.current?.remove();
         m.getCanvas().style.cursor = "";
       });
 
       // Vessel hover: tooltip
-      const hoverPopup = new ml.Popup({
-        closeButton: false,
-        closeOnClick: false,
-        offset: 6,
-        className: "hover-tooltip",
-      });
+      if (!hoverPopupRef.current) {
+        hoverPopupRef.current = new ml.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          offset: 6,
+          className: "hover-tooltip",
+        });
+      }
       m.on("mousemove", "vessel-point", (e) => {
         const f = e.features?.[0];
         if (!f?.properties) return;
         m.getCanvas().style.cursor = "pointer";
-        hoverPopup
-          .setLngLat(e.lngLat)
-          .setHTML(
+        hoverPopupRef.current
+          ?.setLngLat(e.lngLat)
+          ?.setHTML(
             `<span class="hover-tooltip-text">${escapeHtml(f.properties.name)} &middot; ${Number(f.properties.speed).toFixed(1)} kn &middot; ${f.properties.heading}&deg;</span>`,
           )
-          .addTo(m);
+          ?.addTo(m);
       });
       m.on("mouseleave", "vessel-point", () => {
-        hoverPopup.remove();
+        hoverPopupRef.current?.remove();
         m.getCanvas().style.cursor = "";
       });
       m.on("mousemove", "vessel-dots", (e) => {
         const f = e.features?.[0];
         if (!f?.properties) return;
         m.getCanvas().style.cursor = "pointer";
-        hoverPopup
-          .setLngLat(e.lngLat)
-          .setHTML(
+        hoverPopupRef.current
+          ?.setLngLat(e.lngLat)
+          ?.setHTML(
             `<span class="hover-tooltip-text">${escapeHtml(f.properties.name)} &middot; ${Number(f.properties.speed).toFixed(1)} kn &middot; ${f.properties.heading}&deg;</span>`,
           )
-          .addTo(m);
+          ?.addTo(m);
       });
       m.on("mouseleave", "vessel-dots", () => {
-        hoverPopup.remove();
+        hoverPopupRef.current?.remove();
         m.getCanvas().style.cursor = "";
       });
 
@@ -509,7 +521,11 @@ export default function App() {
           ts: p.ts as string | undefined,
         };
 
-        // Close existing popup
+        // Close existing popup and cleanup React root
+        if (vesselDetailPopupRootRef.current) {
+          vesselDetailPopupRootRef.current.unmount();
+          vesselDetailPopupRootRef.current = null;
+        }
         vesselDetailPopupRef.current?.remove();
 
         if (!vesselDetailPopupRef.current) {
@@ -525,7 +541,16 @@ export default function App() {
         const popup = vesselDetailPopupRef.current;
         const popupContainer = document.createElement("div");
         const popupRoot = createRoot(popupContainer);
+        vesselDetailPopupRootRef.current = popupRoot;
         popupRoot.render(<VesselPopup vessel={popupVessel} color={popupColor} />);
+
+        // Cleanup React root when popup is closed
+        popup.on("close", () => {
+          if (vesselDetailPopupRootRef.current) {
+            vesselDetailPopupRootRef.current.unmount();
+            vesselDetailPopupRootRef.current = null;
+          }
+        });
 
         popup
           .setLngLat([coords[0], coords[1]])
@@ -667,11 +692,19 @@ export default function App() {
 
     mapRef.current = map;
     return () => {
+      // Cleanup all popups to prevent memory leaks (PERF-016)
+      trajPopupRef.current?.remove();
+      hoverPopupRef.current?.remove();
+      vesselDetailPopupRef.current?.remove();
+      vesselDetailPopupRootRef.current?.unmount();
+      portHoverPopupRef.current?.remove();
+      portDetailPopupRef.current?.remove();
+      
+      // map.remove() already cleans up all event listeners
       map.remove();
       mapRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [maplibreglRuntime]);
 
   // Switch basemap when theme changes
   useEffect(() => {
@@ -851,7 +884,7 @@ export default function App() {
         }
       });
     } else {
-      // Remove layer and source
+      // Remove layer and source (this also removes associated event listeners)
       if (map.getLayer("ports-congestion")) {
         map.removeLayer("ports-congestion");
       }

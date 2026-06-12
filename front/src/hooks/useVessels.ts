@@ -38,6 +38,7 @@ export function useVessels(
   const genRef = useRef(0);
   const loadedBoundsRef = useRef<Bounds | null>(null);
   const accumulatedRef = useRef<Map<number, Vessel>>(new Map());
+  const MAX_ACCUMULATED_SIZE = 10000;
 
   useEffect(() => {
     initDuckDB()
@@ -65,10 +66,16 @@ export function useVessels(
       const data = await queryLastPositions(d, expanded);
       if (generation !== genRef.current) return;
       loadedBoundsRef.current = expanded;
+      const accumulated = accumulatedRef.current;
       for (const v of data) {
-        accumulatedRef.current.set(v.id, v);
+        accumulated.set(v.id, v);
+        // FIFO cleanup if exceeds max size (PERF-019)
+        if (accumulated.size > MAX_ACCUMULATED_SIZE) {
+          const firstKey = accumulated.keys().next().value;
+          if (firstKey !== undefined) accumulated.delete(firstKey);
+        }
       }
-      setVessels(Array.from(accumulatedRef.current.values()));
+      setVessels(Array.from(accumulated.values()));
     } catch (e: any) {
       if (generation !== genRef.current) return;
       setError(e.message ?? "Query failed");
